@@ -72,14 +72,14 @@ class RetrieverConfig:
     rerank_top_n: int = 30
     rerank_weight: float = 0.6
     reranker_model: str = "cross-encoder/ms-marco-MiniLM-L-6-v2"
-    # RRF (Reciprocal Rank Fusion) settings - EverMemOS-inspired
+    # RRF (Reciprocal Rank Fusion) settings
     use_rrf: bool = True
     rrf_k: int = 60  # Standard RRF constant
     # Agentic retrieval settings
     use_agentic_retrieval: bool = True
     max_retrieval_rounds: int = 3
     sufficiency_threshold: float = 0.6  # Min confidence to stop retrieval
-    # Attention filter settings - EverMemOS "precise forgetting"
+    # Attention filter settings - "precise forgetting"
     use_attention_filter: bool = True
     attention_relevance_threshold: float = 0.3
     attention_diversity_weight: float = 0.3
@@ -213,7 +213,7 @@ class Retriever:
         """
         Agentic retrieval with sufficiency checking and query rewriting.
 
-        EverMemOS-inspired: Multi-step retrieval that checks if context is sufficient
+        Multi-step retrieval that checks if context is sufficient
         and rewrites queries when needed.
         """
         all_results: list[RetrievalResult] = []
@@ -494,7 +494,7 @@ class Retriever:
         """
         Reciprocal Rank Fusion (RRF) to combine results from multiple strategies.
 
-        EverMemOS-inspired: RRF(d) = Σ 1/(k + rank_i(d))
+        RRF(d) = Σ 1/(k + rank_i(d))
 
         This method is proven to work better than weighted score combination
         because it normalizes across different scoring scales.

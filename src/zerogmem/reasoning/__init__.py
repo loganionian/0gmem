@@ -1,7 +1,7 @@
 """
-Reasoning Module: Novel innovations for superior performance.
+Reasoning Module: Advanced reasoning components.
 
-This module contains innovative approaches that go beyond EverMemOS:
+This module contains:
 - Answer Verification: Generate-verify-refine loop
 - Question Decomposition: Break complex questions into sub-questions
 """

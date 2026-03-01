@@ -1,8 +1,8 @@
 """
 Entity Timeline: Build explicit temporal graphs for each entity.
 
-INNOVATION: Unlike EverMemOS which uses session-level temporal resolution,
-we build a complete timeline graph per entity that captures:
+Builds a complete timeline graph per entity (beyond session-level temporal
+resolution) that captures:
 1. Absolute dates of events
 2. Relative ordering of events
 3. Duration facts (how long things lasted)

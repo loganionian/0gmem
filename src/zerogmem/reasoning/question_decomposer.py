@@ -1,9 +1,8 @@
 """
 Question Decomposer: Break complex questions into atomic sub-questions.
 
-INNOVATION: Unlike EverMemOS which uses multi-query retrieval for the same question,
-we decompose questions into sub-questions that can be answered independently,
-then synthesize the final answer.
+Decomposes questions into sub-questions that can be answered independently,
+then synthesizes the final answer (rather than multi-query retrieval for the same question).
 
 This is especially powerful for multi-hop questions like:
 "Would Caroline enjoy classical music based on her hobbies?"

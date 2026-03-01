@@ -1828,7 +1828,7 @@ JSON:"""
         "What would Caroline's political leaning likely be?"
         Answer: Liberal (because she's LGBTQ+ activist/supporter)
 
-        EverMemOS-inspired: Progressive profile building with inference.
+        Progressive profile building with inference.
         """
         profile = self.person_profiles[person]
 

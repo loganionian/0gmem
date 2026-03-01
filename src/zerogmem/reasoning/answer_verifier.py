@@ -1,8 +1,7 @@
 """
 Answer Verifier: Generate-Verify-Refine loop for reliable answers.
 
-INNOVATION: Unlike EverMemOS which does single-pass answer generation,
-we implement a verification loop that:
+Implements a verification loop instead of single-pass answer generation:
 1. Generates an initial answer
 2. Extracts claims from the answer
 3. Verifies each claim against retrieved context

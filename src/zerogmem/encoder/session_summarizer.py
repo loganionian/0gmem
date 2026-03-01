@@ -1,7 +1,7 @@
 """
 Session Summarizer: Compress conversation sessions into summaries.
 
-Inspired by EverMemOS's session-level compression for better context density.
+Uses session-level compression for better context density.
 """
 
 from __future__ import annotations

@@ -1,7 +1,7 @@
 """
 MemCell and MemScene: Hierarchical Memory Structures
 
-Inspired by EverMemOS's engram-based memory organization:
+Uses engram-based memory organization:
 - MemCell: Atomic memory unit (single fact, event, preference, or relation)
 - MemScene: Collection of related MemCells forming coherent context
 

@@ -1,5 +1,5 @@
 """
-Memory Types: Multiple memory categories inspired by EverMemOS architecture.
+Memory Types: Multiple memory categories for structured memory storage.
 
 Implements seven memory types:
 - Episodes: Temporal narrative sequences
@@ -76,7 +76,7 @@ class CoreMemory:
 
 class MultiTypeMemoryStore:
     """
-    Store for multiple memory types inspired by EverMemOS.
+    Store for multiple memory types.
 
     Maintains separate indices for:
     - Episodes (what happened when)
@@ -171,7 +171,7 @@ class MemoryExtractor:
     """
     Extracts multiple memory types from conversation text.
 
-    Inspired by EverMemOS MemCell extraction.
+    Extracts structured memory types from conversation text.
     """
 
     # Preference patterns

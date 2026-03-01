@@ -1,8 +1,8 @@
 """
 Multi-Query Retrieval: Generate multiple complementary queries for complex questions.
 
-Inspired by EverMemOS's Agentic Multi-Round Recall that generates 2-3 complementary
-queries for complex intents, executing in parallel with RRF fusion.
+Generates 2-3 complementary queries for complex intents, executing in parallel
+with Reciprocal Rank Fusion (RRF).
 """
 
 from __future__ import annotations
@@ -193,7 +193,7 @@ class MultiQueryRetriever:
     """
     Retriever that uses multiple queries with RRF fusion.
 
-    Inspired by EverMemOS's parallel execution with Reciprocal Rank Fusion.
+    Uses parallel execution with Reciprocal Rank Fusion.
     """
 
     def __init__(

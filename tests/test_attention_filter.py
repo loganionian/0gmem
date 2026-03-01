@@ -1,4 +1,4 @@
-"""Tests for AttentionFilter: EverMemOS-inspired context filtering."""
+"""Tests for AttentionFilter: context filtering with precise forgetting."""
 
 from dataclasses import dataclass
 

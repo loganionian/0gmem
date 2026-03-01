@@ -1,9 +1,8 @@
 """
-Attention Filter: Implements EverMemOS-inspired "precise forgetting" for context selection.
+Attention Filter: Implements "precise forgetting" for context selection.
 
-The key insight from EverMemOS is that high-quality memory requires not only precise
-remembering but also precise forgetting. This filter removes redundant and low-relevance
-content that dilutes LLM attention.
+High-quality memory requires not only precise remembering but also precise forgetting.
+This filter removes redundant and low-relevance content that dilutes LLM attention.
 """
 
 from __future__ import annotations
@@ -30,7 +29,7 @@ class AttentionFilter:
     """
     Filters retrieved context to only essential information.
 
-    EverMemOS-inspired: "precise forgetting" - acting as an intelligent attention
+    Applies "precise forgetting" - acting as an intelligent attention
     filter to reduce cognitive load and direct focus to critical information.
 
     Features:

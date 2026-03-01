@@ -251,7 +251,7 @@ Answer: Beach
         # Initialize LLM-based fact extractor for profile building
         self.llm_fact_extractor = LLMFactExtractor(llm_client=llm_client, model=self.llm_model)
 
-        # Initialize EverMemOS-inspired multi-type memory
+        # Initialize multi-type memory
         self.memory_extractor = MemoryExtractor()
         self.multi_query_gen = MultiQueryGenerator()
 
@@ -262,7 +262,7 @@ Answer: Beach
         # 5. Event-Date Index for direct temporal lookup
         self.event_date_index = EventDateIndex()
 
-        # 6. Hierarchical Memory: MemCell/MemScene system (EverMemOS-inspired)
+        # 6. Hierarchical Memory: MemCell/MemScene system
         self.memcell_extractor = MemCellExtractor(llm_client=llm_client)
         self.memscene_builder = MemSceneBuilder(llm_client=llm_client)
         self.hierarchical_memory = MemoryStore()
@@ -780,7 +780,7 @@ Answer: Beach
                     text, speaker, session_timestamp, partner
                 )
 
-            # Extract multi-type memories (EverMemOS-inspired)
+            # Extract multi-type memories
             # This builds Episodes, Preferences, Relationships, and CoreMemories
             if source_type == "message":
                 self.memory_extractor.extract_all(
@@ -3373,7 +3373,7 @@ Suggest ONE better search query (just the query, no explanation):"""
         3. Combining information across sources
         4. Synthesizing a coherent answer
 
-        This is inspired by EverMemOS's reconstructive approach.
+        This follows a reconstructive memory approach.
         """
         if not self.llm_client or not target_entity:
             return None
@@ -3695,7 +3695,7 @@ Answer:"""
         """
         INNOVATION v77: Sufficiency-checking multi-hop handler.
 
-        Inspired by EverMemOS agentic retrieval, this method:
+        Uses agentic retrieval to:
         1. Gets initial context
         2. Has LLM evaluate if context is sufficient
         3. If not sufficient, LLM identifies missing info and generates follow-up query
@@ -3906,7 +3906,7 @@ Answer:"""
         """
         Scene-guided retrieval using hierarchical MemScene/MemCell structure.
 
-        This is a cleaner approach inspired by EverMemOS that:
+        This approach:
         1. First finds relevant scenes (topic/activity clusters)
         2. Then retrieves relevant cells from those scenes
         3. Composes context with scene summaries + specific cell details
@@ -4651,7 +4651,7 @@ Answer:"""
         max_chars: int = 6000,
     ) -> list[tuple[str, float]]:
         """
-        Apply attention filter to hybrid retrieval results (EverMemOS "precise forgetting").
+        Apply attention filter to hybrid retrieval results ("precise forgetting").
 
         This reduces noise before context is passed to the LLM by:
         1. Removing low-scoring results (below threshold)
@@ -5468,7 +5468,7 @@ Answer:"""
         self, query: str, target_entity: str | None = None, top_k: int = 20
     ) -> str:
         """
-        Multi-query retrieval with RRF fusion (EverMemOS-inspired).
+        Multi-query retrieval with RRF fusion.
 
         Generates 2-3 complementary queries and combines results.
         """
