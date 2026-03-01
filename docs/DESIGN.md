@@ -1,8 +1,8 @@
-# 0GMem: Zero-Gap Memory System Design
+# 0GMem: Zero Gravity Memory System Design
 
 ## Vision
 
-0GMem (Zero-Gap Memory) is a next-generation AI memory system designed to achieve SOTA performance on the LoCoMo benchmark by addressing the fundamental limitations of existing systems like EverMemOS. The name reflects our goal of **zero gap** between AI and human-level conversational memory.
+0GMem (Zero Gravity Memory) is a next-generation AI memory system that gives LLMs structured, long-term conversational memory. The name reflects our goal of making memory **weightless** — always available, never a burden — enabling accurate recall across hundreds of conversation sessions.
 
 ## Design Principles
 
@@ -340,8 +340,8 @@ class ConsolidatorLayer:
 ```python
 class LosslessCompressor:
     """
-    Unlike EverMemOS which may lose details in summarization,
-    we compress but maintain retrievability.
+    Compress but maintain retrievability — never lose details
+    in summarization.
     """
 
     def compress(self, episode: Episode) -> CompressedEpisode:
@@ -583,61 +583,6 @@ class NegativeFactStore:
 
 ---
 
-## Implementation Roadmap
-
-### Phase 1: Core Infrastructure (Week 1-2)
-- [ ] Unified Memory Graph data structures
-- [ ] Basic encoder with entity extraction
-- [ ] Simple embedding-based retrieval
-- [ ] LoCoMo evaluation harness integration
-
-### Phase 2: Temporal Reasoning (Week 3-4)
-- [ ] Temporal marker extraction
-- [ ] Temporal graph construction
-- [ ] Allen's interval algebra implementation
-- [ ] Temporal retrieval strategies
-
-### Phase 3: Multi-Hop & Graph Retrieval (Week 5-6)
-- [ ] Graph-based multi-hop traversal
-- [ ] Causal graph construction
-- [ ] Intent-guided edge selection
-- [ ] Path-based evidence collection
-
-### Phase 4: Memory Hierarchy (Week 7-8)
-- [ ] Working memory implementation
-- [ ] Episodic → Semantic consolidation
-- [ ] Lossless compression
-- [ ] Meta memory schemas
-
-### Phase 5: Robustness (Week 9-10)
-- [ ] Negative fact storage
-- [ ] Contradiction detection
-- [ ] Confidence scoring
-- [ ] Position-aware composition
-
-### Phase 6: Optimization (Week 11-12)
-- [ ] Parallel graph traversal
-- [ ] Caching strategies
-- [ ] Speculative prefetch
-- [ ] Benchmark optimization
-
----
-
-## Expected Performance Improvements
-
-| Component | Target Improvement | LoCoMo Question Type |
-|-----------|-------------------|---------------------|
-| Temporal Graph | +15-20% | Temporal |
-| Multi-hop Retrieval | +10-15% | Multi-hop |
-| Negative Facts | +5-10% | Adversarial |
-| Position-Aware Composition | +3-5% | All |
-| Lossless Consolidation | +3-5% | Single-hop (recall) |
-| Working Memory | +2-3% | All |
-
-**Target**: 95%+ overall accuracy on LoCoMo (vs EverMemOS 92.3%)
-
----
-
 ## Technology Stack
 
 - **Language**: Python 3.10+
@@ -651,11 +596,9 @@ class NegativeFactStore:
 
 ## Conclusion
 
-0GMem addresses the fundamental limitations of EverMemOS through:
-1. **Temporal-first design** for LoCoMo's hardest questions
+0GMem achieves accurate long-term conversational memory through:
+1. **Temporal-first design** for precise time-based reasoning
 2. **Graph-native architecture** for multi-hop reasoning
 3. **Lossless compression** to never lose retrievable details
 4. **Negative fact storage** for adversarial robustness
 5. **Position-aware composition** to combat lost-in-the-middle
-
-The system maintains EverMemOS's strengths (efficient token usage, agentic retrieval) while adding the capabilities needed to achieve SOTA on LoCoMo.
