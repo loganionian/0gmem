@@ -17,9 +17,10 @@ import atexit
 import json
 import os
 import sys
+import time
 from datetime import datetime
 from pathlib import Path
-from typing import Optional
+from typing import Dict, Optional
 
 # MCP server must not write to stdout - use stderr for logging
 import logging
@@ -47,6 +48,51 @@ _autosave_interval = int(os.environ.get("ZEROGMEM_AUTOSAVE_INTERVAL", "5"))
 
 # Serializes all tool handler access to shared state
 _lock = asyncio.Lock()
+
+
+class OperationMetrics:
+    """Lightweight per-operation metrics tracker."""
+
+    def __init__(self):
+        self._ops: Dict[str, dict] = {}
+        self._start_time = datetime.now()
+
+    def record(self, operation: str, duration_ms: float, error: bool = False):
+        """Record a completed operation."""
+        if operation not in self._ops:
+            self._ops[operation] = {
+                "count": 0, "errors": 0,
+                "total_ms": 0.0, "last_ms": 0.0,
+                "min_ms": float("inf"), "max_ms": 0.0,
+            }
+        op = self._ops[operation]
+        op["count"] += 1
+        op["total_ms"] += duration_ms
+        op["last_ms"] = duration_ms
+        op["min_ms"] = min(op["min_ms"], duration_ms)
+        op["max_ms"] = max(op["max_ms"], duration_ms)
+        if error:
+            op["errors"] += 1
+
+    def get_summary(self) -> dict:
+        """Get metrics summary for all operations."""
+        result = {
+            "uptime_seconds": (datetime.now() - self._start_time).total_seconds(),
+        }
+        for name, op in self._ops.items():
+            avg = op["total_ms"] / op["count"] if op["count"] > 0 else 0
+            result[name] = {
+                "count": op["count"],
+                "errors": op["errors"],
+                "avg_ms": round(avg, 1),
+                "min_ms": round(op["min_ms"], 1) if op["min_ms"] != float("inf") else 0,
+                "max_ms": round(op["max_ms"], 1),
+                "last_ms": round(op["last_ms"], 1),
+            }
+        return result
+
+
+_metrics = OperationMetrics()
 
 
 def _env_int(name: str, default: int) -> int:
@@ -144,6 +190,8 @@ def _initialize_memory():
         return
 
     logger.info("Initializing 0GMem memory system...")
+    t0 = time.monotonic()
+    error = False
 
     try:
         from zerogmem import MemoryManager, Encoder, Retriever
@@ -178,8 +226,12 @@ def _initialize_memory():
         logger.info("0GMem initialized successfully")
 
     except Exception as e:
+        error = True
         logger.error(f"Failed to initialize 0GMem: {e}")
         raise
+    finally:
+        elapsed_ms = (time.monotonic() - t0) * 1000
+        _metrics.record("initialize", elapsed_ms, error=error)
 
 
 def _ensure_session():
@@ -220,6 +272,8 @@ async def store_memory(
         if metadata is not None and len(metadata) > MAX_METADATA_LENGTH:
             return f"Error: 'metadata' exceeds maximum length of {MAX_METADATA_LENGTH:,} characters."
 
+        t0 = time.monotonic()
+        error = False
         try:
             _ensure_session()
 
@@ -248,8 +302,12 @@ async def store_memory(
             return f"Memory stored successfully (ID: {msg_id})"
 
         except Exception as e:
+            error = True
             logger.error(f"Error storing memory: {e}")
             return f"Error storing memory: {str(e)}"
+        finally:
+            elapsed_ms = (time.monotonic() - t0) * 1000
+            _metrics.record("store_memory", elapsed_ms, error=error)
 
 
 @mcp.tool()
@@ -276,6 +334,8 @@ async def retrieve_memories(
             return err
         max_results = _clamp_max_results(max_results)
 
+        t0 = time.monotonic()
+        error = False
         try:
             _initialize_memory()
 
@@ -300,8 +360,12 @@ async def retrieve_memories(
             return "\n".join(response_parts)
 
         except Exception as e:
+            error = True
             logger.error(f"Error retrieving memories: {e}")
             return f"Error retrieving memories: {str(e)}"
+        finally:
+            elapsed_ms = (time.monotonic() - t0) * 1000
+            _metrics.record("retrieve_memories", elapsed_ms, error=error)
 
 
 @mcp.tool()
@@ -327,6 +391,8 @@ async def search_memories_by_entity(
             return err
         max_results = _clamp_max_results(max_results)
 
+        t0 = time.monotonic()
+        error = False
         try:
             _initialize_memory()
 
@@ -344,8 +410,12 @@ async def search_memories_by_entity(
             return response
 
         except Exception as e:
+            error = True
             logger.error(f"Error searching by entity: {e}")
             return f"Error searching memories: {str(e)}"
+        finally:
+            elapsed_ms = (time.monotonic() - t0) * 1000
+            _metrics.record("search_by_entity", elapsed_ms, error=error)
 
 
 @mcp.tool()
@@ -371,6 +441,8 @@ async def search_memories_by_time(
             return err
         max_results = _clamp_max_results(max_results)
 
+        t0 = time.monotonic()
+        error = False
         try:
             _initialize_memory()
 
@@ -388,8 +460,12 @@ async def search_memories_by_time(
             return response
 
         except Exception as e:
+            error = True
             logger.error(f"Error searching by time: {e}")
             return f"Error searching memories: {str(e)}"
+        finally:
+            elapsed_ms = (time.monotonic() - t0) * 1000
+            _metrics.record("search_by_time", elapsed_ms, error=error)
 
 
 @mcp.tool()
@@ -403,6 +479,8 @@ async def get_memory_summary() -> str:
         Summary of memory contents and statistics
     """
     async with _lock:
+        t0 = time.monotonic()
+        error = False
         try:
             _initialize_memory()
 
@@ -455,6 +533,26 @@ async def get_memory_summary() -> str:
                 )
                 summary_parts.append("")
 
+            # Performance metrics
+            metrics = _metrics.get_summary()
+            uptime_s = metrics.pop("uptime_seconds", 0)
+            if metrics:
+                if uptime_s >= 3600:
+                    uptime_str = f"{uptime_s / 3600:.1f}h"
+                elif uptime_s >= 60:
+                    uptime_str = f"{uptime_s / 60:.0f}m"
+                else:
+                    uptime_str = f"{uptime_s:.0f}s"
+                summary_parts.append("### Performance")
+                summary_parts.append(f"- Uptime: {uptime_str}")
+                for op_name, op_stats in metrics.items():
+                    err_str = f", {op_stats['errors']} errors" if op_stats["errors"] else ""
+                    summary_parts.append(
+                        f"- {op_name}: {op_stats['count']} calls, "
+                        f"avg {op_stats['avg_ms']:.0f}ms{err_str}"
+                    )
+                summary_parts.append("")
+
             # Current session
             if stats.get("current_session"):
                 summary_parts.append(f"### Active Session\n- Session ID: {stats['current_session']}")
@@ -463,8 +561,12 @@ async def get_memory_summary() -> str:
             return "\n".join(summary_parts)
 
         except Exception as e:
+            error = True
             logger.error(f"Error getting summary: {e}")
             return f"Error getting memory summary: {str(e)}"
+        finally:
+            elapsed_ms = (time.monotonic() - t0) * 1000
+            _metrics.record("get_summary", elapsed_ms, error=error)
 
 
 @mcp.tool()
@@ -478,6 +580,8 @@ async def end_conversation_session() -> str:
         Confirmation that the session was ended
     """
     async with _lock:
+        t0 = time.monotonic()
+        error = False
         try:
             _initialize_memory()
 
@@ -494,8 +598,12 @@ async def end_conversation_session() -> str:
             return f"Session ended and memories consolidated (Session ID: {session_id})"
 
         except Exception as e:
+            error = True
             logger.error(f"Error ending session: {e}")
             return f"Error ending session: {str(e)}"
+        finally:
+            elapsed_ms = (time.monotonic() - t0) * 1000
+            _metrics.record("end_session", elapsed_ms, error=error)
 
 
 @mcp.tool()
@@ -517,6 +625,8 @@ async def start_new_session(topic: Optional[str] = None) -> str:
             if err:
                 return err
 
+        t0 = time.monotonic()
+        error = False
         try:
             _initialize_memory()
 
@@ -535,8 +645,12 @@ async def start_new_session(topic: Optional[str] = None) -> str:
             return f"New session started (ID: {session_id})" + (f" - Topic: {topic}" if topic else "")
 
         except Exception as e:
+            error = True
             logger.error(f"Error starting session: {e}")
             return f"Error starting session: {str(e)}"
+        finally:
+            elapsed_ms = (time.monotonic() - t0) * 1000
+            _metrics.record("start_session", elapsed_ms, error=error)
 
 
 @mcp.tool()
@@ -549,6 +663,8 @@ async def clear_all_memories() -> str:
         Confirmation that memories were cleared
     """
     async with _lock:
+        t0 = time.monotonic()
+        error = False
         try:
             global _memory_manager, _encoder, _retriever, _initialized
 
@@ -576,8 +692,12 @@ async def clear_all_memories() -> str:
             return "All memories have been cleared. Starting fresh."
 
         except Exception as e:
+            error = True
             logger.error(f"Error clearing memories: {e}")
             return f"Error clearing memories: {str(e)}"
+        finally:
+            elapsed_ms = (time.monotonic() - t0) * 1000
+            _metrics.record("clear_all", elapsed_ms, error=error)
 
 
 def main():
