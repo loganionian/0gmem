@@ -37,6 +37,7 @@ from zerogmem.retriever.retriever import (
     RetrievalResponse,
 )
 from zerogmem.retriever.query_analyzer import QueryAnalyzer, QueryAnalysis
+from zerogmem.persistence import save_memory_state, load_memory_state
 
 __all__ = [
     # Core orchestrators
@@ -52,6 +53,9 @@ __all__ = [
     "RetrievalResponse",
     "QueryAnalysis",
     "QueryAnalyzer",
+    # Persistence
+    "save_memory_state",
+    "load_memory_state",
     # Meta
     "__version__",
 ]

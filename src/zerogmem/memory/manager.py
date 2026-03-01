@@ -565,14 +565,70 @@ class MemoryManager:
         return context
 
     def to_dict(self) -> Dict[str, Any]:
-        """Serialize the entire memory system."""
+        """Serialize the entire memory system.
+
+        Note: Working memory is ephemeral and NOT serialized.
+        Embeddings are NOT included — save separately via persistence module.
+        """
         return {
             "config": {
                 "working_memory_capacity": self.config.working_memory_capacity,
+                "working_memory_decay_rate": self.config.working_memory_decay_rate,
                 "embedding_dim": self.config.embedding_dim,
+                "auto_consolidate": self.config.auto_consolidate,
+                "consolidation_threshold_days": self.config.consolidation_threshold_days,
+                "consolidation_min_retrievals": self.config.consolidation_min_retrievals,
             },
+            "current_session_id": self.current_session_id,
             "graph": self.graph.to_dict(),
             "episodic": self.episodic_memory.to_dict(),
             "semantic": self.semantic_memory.to_dict(),
-            "stats": self.get_stats(),
         }
+
+    @classmethod
+    def from_dict(
+        cls,
+        data: Dict[str, Any],
+        embedding_fn: Optional[callable] = None,
+        embeddings_map: Optional[Dict[str, np.ndarray]] = None,
+    ) -> "MemoryManager":
+        """Deserialize memory manager from dictionary.
+
+        Args:
+            data: Output of to_dict().
+            embedding_fn: Embedding function to set on the restored manager.
+            embeddings_map: Map of id -> embedding for all components.
+        """
+        embeddings_map = embeddings_map or {}
+        config_data = data.get("config", {})
+        config = MemoryConfig(
+            working_memory_capacity=config_data.get("working_memory_capacity", 20),
+            working_memory_decay_rate=config_data.get("working_memory_decay_rate", 0.05),
+            embedding_dim=config_data.get("embedding_dim", 1536),
+            auto_consolidate=config_data.get("auto_consolidate", True),
+            consolidation_threshold_days=config_data.get("consolidation_threshold_days", 7),
+            consolidation_min_retrievals=config_data.get("consolidation_min_retrievals", 3),
+        )
+
+        manager = cls(config=config)
+
+        if embedding_fn:
+            manager.set_embedding_function(embedding_fn)
+
+        # Restore sub-components
+        if "graph" in data:
+            manager.graph = UnifiedMemoryGraph.from_dict(
+                data["graph"], embeddings_map
+            )
+        if "episodic" in data:
+            manager.episodic_memory = EpisodicMemory.from_dict(
+                data["episodic"], embeddings_map
+            )
+        if "semantic" in data:
+            manager.semantic_memory = SemanticMemoryStore.from_dict(
+                data["semantic"], embeddings_map
+            )
+
+        manager.current_session_id = data.get("current_session_id")
+
+        return manager

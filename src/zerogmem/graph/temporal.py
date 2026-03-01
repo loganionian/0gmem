@@ -116,8 +116,15 @@ class TemporalGraph:
         # Index for efficient temporal queries
         self._time_index: Dict[datetime, Set[str]] = {}
 
-    def add_node(self, node: TemporalNode) -> str:
-        """Add a temporal node to the graph."""
+    def add_node(self, node: TemporalNode, compute_relations: bool = True) -> str:
+        """Add a temporal node to the graph.
+
+        Args:
+            node: The temporal node to add.
+            compute_relations: If True, compute temporal relations with all
+                existing nodes (O(n)). Set to False during bulk loading,
+                then call recompute_all_relations() once after.
+        """
         self.nodes[node.id] = node
         self.graph.add_node(node.id, data=node)
 
@@ -125,9 +132,34 @@ class TemporalGraph:
         self._index_node(node)
 
         # Compute relations with existing nodes
-        self._compute_relations_for_node(node)
+        if compute_relations:
+            self._compute_relations_for_node(node)
 
         return node.id
+
+    def recompute_all_relations(self) -> int:
+        """Recompute temporal relations between all node pairs.
+
+        Call this after bulk loading with compute_relations=False.
+        Returns the number of edges created.
+        """
+        self.edges.clear()
+        self.graph.remove_edges_from(list(self.graph.edges()))
+        count = 0
+        node_ids = list(self.nodes.keys())
+        for i, nid_a in enumerate(node_ids):
+            for nid_b in node_ids[i + 1:]:
+                relation = self.compute_relation(self.nodes[nid_a], self.nodes[nid_b])
+                if relation:
+                    edge = TemporalEdge(
+                        source_id=nid_a,
+                        target_id=nid_b,
+                        relation=relation,
+                        inferred=True,
+                    )
+                    self.add_edge(edge)
+                    count += 1
+        return count
 
     def _index_node(self, node: TemporalNode) -> None:
         """Index node by time for efficient queries."""
@@ -354,7 +386,40 @@ class TemporalGraph:
                     "relation": e.relation.value,
                     "confidence": e.confidence,
                     "inferred": e.inferred,
+                    "evidence": e.evidence,
                 }
                 for e in self.edges
             ]
         }
+
+    @classmethod
+    def from_dict(cls, data: Dict[str, Any]) -> "TemporalGraph":
+        """Deserialize graph from dictionary.
+
+        Loads nodes without computing relations, then recomputes once.
+        """
+        graph = cls()
+        for nd in data.get("nodes", []):
+            end_time = (
+                datetime.fromisoformat(nd["event_time_end"])
+                if nd.get("event_time_end")
+                else None
+            )
+            node = TemporalNode(
+                id=nd["id"],
+                content=nd.get("content", ""),
+                event_time=TimeInterval(
+                    start=datetime.fromisoformat(nd["event_time_start"]),
+                    end=end_time,
+                ),
+                ingestion_time=datetime.fromisoformat(nd["ingestion_time"]),
+                memory_id=nd.get("memory_id"),
+                entities=nd.get("entities", []),
+                importance=nd.get("importance", 0.5),
+                metadata=nd.get("metadata", {}),
+            )
+            graph.add_node(node, compute_relations=False)
+
+        # Recompute temporal relations in one pass
+        graph.recompute_all_relations()
+        return graph

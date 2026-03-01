@@ -499,7 +499,11 @@ class UnifiedMemoryGraph:
         }
 
     def to_dict(self) -> Dict[str, Any]:
-        """Serialize the unified graph."""
+        """Serialize the unified graph.
+
+        Note: Embeddings are NOT included. They must be saved separately
+        and passed to from_dict().
+        """
         return {
             "memories": [
                 {
@@ -507,10 +511,27 @@ class UnifiedMemoryGraph:
                     "content": m.content,
                     "summary": m.summary,
                     "event_time_start": m.event_time.start.isoformat() if m.event_time else None,
+                    "event_time_end": (
+                        m.event_time.end.isoformat()
+                        if m.event_time and m.event_time.end
+                        else None
+                    ),
+                    "ingestion_time": m.ingestion_time.isoformat(),
                     "entities": m.entities,
+                    "entity_names": m.entity_names,
+                    "causes": m.causes,
+                    "effects": m.effects,
                     "concepts": m.concepts,
                     "importance": m.importance,
                     "source": m.source,
+                    "session_id": m.session_id,
+                    "turn_number": m.turn_number,
+                    "speaker": m.speaker,
+                    "negated_facts": m.negated_facts,
+                    "temporal_node_id": m.temporal_node_id,
+                    "semantic_node_id": m.semantic_node_id,
+                    "causal_node_id": m.causal_node_id,
+                    "metadata": m.metadata,
                 }
                 for m in self.memories.values()
             ],
@@ -519,3 +540,93 @@ class UnifiedMemoryGraph:
             "causal_graph": self.causal_graph.to_dict(),
             "semantic_graph": self.semantic_graph.to_dict(),
         }
+
+    @classmethod
+    def from_dict(
+        cls,
+        data: Dict[str, Any],
+        embeddings_map: Optional[Dict[str, np.ndarray]] = None,
+    ) -> "UnifiedMemoryGraph":
+        """Deserialize the unified graph from dictionary.
+
+        Args:
+            data: Output of to_dict().
+            embeddings_map: Map of memory_id -> embedding (and also
+                semantic_node_id -> embedding for the semantic sub-graph).
+        """
+        embeddings_map = embeddings_map or {}
+        embedding_dim = data.get("semantic_graph", {}).get("embedding_dim", 1536)
+        graph = cls(embedding_dim=embedding_dim)
+
+        # Restore sub-graphs via their own from_dict
+        if "temporal_graph" in data:
+            graph.temporal_graph = TemporalGraph.from_dict(data["temporal_graph"])
+        if "entity_graph" in data:
+            graph.entity_graph = EntityGraph.from_dict(data["entity_graph"])
+        if "causal_graph" in data:
+            graph.causal_graph = CausalGraph.from_dict(data["causal_graph"])
+        if "semantic_graph" in data:
+            # Build semantic embeddings map from "semantic_<memory_id>" keys
+            sem_embeddings = {}
+            for key, emb in embeddings_map.items():
+                if key.startswith("semantic_"):
+                    sem_embeddings[key] = emb
+                else:
+                    sem_embeddings[f"semantic_{key}"] = emb
+            graph.semantic_graph = SemanticGraph.from_dict(
+                data["semantic_graph"], sem_embeddings
+            )
+
+        # Restore memories directly (NOT via add_memory which creates sub-nodes)
+        for md in data.get("memories", []):
+            event_time = None
+            if md.get("event_time_start"):
+                event_time = TimeInterval(
+                    start=datetime.fromisoformat(md["event_time_start"]),
+                    end=(
+                        datetime.fromisoformat(md["event_time_end"])
+                        if md.get("event_time_end")
+                        else None
+                    ),
+                )
+            memory = UnifiedMemoryItem(
+                id=md["id"],
+                content=md.get("content", ""),
+                summary=md.get("summary", ""),
+                embedding=embeddings_map.get(md["id"]),
+                event_time=event_time,
+                ingestion_time=(
+                    datetime.fromisoformat(md["ingestion_time"])
+                    if md.get("ingestion_time")
+                    else datetime.now()
+                ),
+                entities=md.get("entities", []),
+                entity_names=md.get("entity_names", []),
+                causes=md.get("causes", []),
+                effects=md.get("effects", []),
+                concepts=md.get("concepts", []),
+                importance=md.get("importance", 0.5),
+                source=md.get("source", ""),
+                session_id=md.get("session_id"),
+                turn_number=md.get("turn_number"),
+                speaker=md.get("speaker"),
+                negated_facts=md.get("negated_facts", []),
+                temporal_node_id=md.get("temporal_node_id"),
+                semantic_node_id=md.get("semantic_node_id"),
+                causal_node_id=md.get("causal_node_id"),
+                metadata=md.get("metadata", {}),
+            )
+            graph.memories[memory.id] = memory
+
+            # Rebuild cross-reference indexes
+            for entity_id in memory.entities:
+                if entity_id not in graph._entity_to_memories:
+                    graph._entity_to_memories[entity_id] = set()
+                graph._entity_to_memories[entity_id].add(memory.id)
+
+            for concept in memory.concepts:
+                if concept not in graph._concept_to_memories:
+                    graph._concept_to_memories[concept] = set()
+                graph._concept_to_memories[concept].add(memory.id)
+
+        return graph

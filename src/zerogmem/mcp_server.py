@@ -12,6 +12,7 @@ Usage:
     claude mcp add --transport stdio 0gmem -- python -m zerogmem.mcp_server
 """
 
+import atexit
 import json
 import os
 import sys
@@ -40,6 +41,8 @@ _encoder = None
 _retriever = None
 _initialized = False
 _memory_dir = None
+_store_count = 0  # Counter for autosave
+_autosave_interval = int(os.environ.get("ZEROGMEM_AUTOSAVE_INTERVAL", "5"))
 
 
 def _get_memory_dir() -> Path:
@@ -50,6 +53,17 @@ def _get_memory_dir() -> Path:
         _memory_dir = Path(os.environ.get("ZEROGMEM_DATA_DIR", Path.home() / ".0gmem"))
         _memory_dir.mkdir(parents=True, exist_ok=True)
     return _memory_dir
+
+
+def _save_state():
+    """Save current memory state to disk."""
+    if _memory_manager is None:
+        return
+    try:
+        from zerogmem.persistence import save_memory_state
+        save_memory_state(_memory_manager, _get_memory_dir())
+    except Exception as e:
+        logger.error(f"Failed to save memory state: {e}")
 
 
 def _initialize_memory():
@@ -63,19 +77,27 @@ def _initialize_memory():
 
     try:
         from zerogmem import MemoryManager, Encoder, Retriever
+        from zerogmem.persistence import load_memory_state
 
-        # Initialize components
-        _memory_manager = MemoryManager()
+        # Initialize encoder first (needed for both fresh and restored)
         _encoder = Encoder()
-        _memory_manager.set_embedding_function(_encoder.get_embedding)
-        _retriever = Retriever(_memory_manager, embedding_fn=_encoder.get_embedding)
 
         # Try to load existing memory state
-        state_file = _get_memory_dir() / "memory_state.json"
-        if state_file.exists():
-            logger.info(f"Loading memory state from {state_file}")
-            # Note: Full state restoration would require serialization support
-            # For now, we start fresh but could implement persistence
+        memory_dir = _get_memory_dir()
+        restored = load_memory_state(memory_dir, _encoder.get_embedding)
+
+        if restored is not None:
+            _memory_manager = restored
+            logger.info("Restored memory state from disk")
+        else:
+            _memory_manager = MemoryManager()
+            _memory_manager.set_embedding_function(_encoder.get_embedding)
+            logger.info("Starting with fresh memory state")
+
+        _retriever = Retriever(_memory_manager, embedding_fn=_encoder.get_embedding)
+
+        # Register atexit handler to save state on shutdown
+        atexit.register(_save_state)
 
         _initialized = True
         logger.info("0GMem initialized successfully")
@@ -129,6 +151,13 @@ async def store_memory(
 
         # Store the message
         msg_id = _memory_manager.add_message(speaker, content, metadata=meta_dict)
+
+        # Autosave periodically
+        global _store_count
+        _store_count += 1
+        if _store_count % _autosave_interval == 0:
+            _save_state()
+            logger.info(f"Autosaved after {_store_count} stores")
 
         logger.info(f"Stored memory: {msg_id} from {speaker}")
         return f"Memory stored successfully (ID: {msg_id})"
@@ -335,6 +364,9 @@ async def end_conversation_session() -> str:
         session_id = _memory_manager.current_session_id
         _memory_manager.end_session()
 
+        # Save state on session end
+        _save_state()
+
         logger.info(f"Ended session: {session_id}")
         return f"Session ended and memories consolidated (Session ID: {session_id})"
 
@@ -398,10 +430,12 @@ async def clear_all_memories() -> str:
         _memory_manager.set_embedding_function(_encoder.get_embedding)
         _retriever = Retriever(_memory_manager, embedding_fn=_encoder.get_embedding)
 
-        # Clear any persisted state
-        state_file = _get_memory_dir() / "memory_state.json"
-        if state_file.exists():
-            state_file.unlink()
+        # Clear any persisted state files
+        memory_dir = _get_memory_dir()
+        for fname in ["memory_state.json", "memory_state.json.bak", "memory_embeddings.npz"]:
+            fpath = memory_dir / fname
+            if fpath.exists():
+                fpath.unlink()
 
         logger.info("All memories cleared")
         return "All memories have been cleared. Starting fresh."

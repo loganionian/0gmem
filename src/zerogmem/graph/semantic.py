@@ -260,8 +260,13 @@ class SemanticGraph:
         return np.vstack(self._embeddings)
 
     def to_dict(self) -> Dict[str, Any]:
-        """Serialize graph to dictionary (excluding embeddings)."""
+        """Serialize graph to dictionary.
+
+        Note: Embeddings are NOT included in JSON output. They must be
+        saved separately (e.g. via NPZ) and passed to from_dict().
+        """
         return {
+            "embedding_dim": self.embedding_dim,
             "nodes": [
                 {
                     "id": n.id,
@@ -271,6 +276,8 @@ class SemanticGraph:
                     "memory_id": n.memory_id,
                     "created_at": n.created_at.isoformat(),
                     "access_count": n.access_count,
+                    "last_accessed": n.last_accessed.isoformat() if n.last_accessed else None,
+                    "metadata": n.metadata,
                 }
                 for n in self.nodes.values()
             ],
@@ -280,7 +287,64 @@ class SemanticGraph:
                     "target_id": e.target_id,
                     "relation": e.relation,
                     "weight": e.weight,
+                    "similarity": e.similarity,
+                    "metadata": e.metadata,
                 }
                 for e in self.edges
             ]
         }
+
+    def get_embeddings_map(self) -> Dict[str, np.ndarray]:
+        """Get a map of node_id -> embedding for persistence."""
+        result = {}
+        for node_id, node in self.nodes.items():
+            if node.embedding is not None:
+                result[node_id] = node.embedding
+        return result
+
+    @classmethod
+    def from_dict(
+        cls,
+        data: Dict[str, Any],
+        embeddings_map: Optional[Dict[str, np.ndarray]] = None,
+    ) -> "SemanticGraph":
+        """Deserialize graph from dictionary.
+
+        Args:
+            data: Output of to_dict().
+            embeddings_map: Map of node_id -> np.ndarray embeddings.
+        """
+        embeddings_map = embeddings_map or {}
+        graph = cls(embedding_dim=data.get("embedding_dim", 1536))
+
+        for nd in data.get("nodes", []):
+            node = SemanticNode(
+                id=nd["id"],
+                content=nd.get("content", ""),
+                embedding=embeddings_map.get(nd["id"]),
+                concepts=nd.get("concepts", []),
+                importance=nd.get("importance", 0.5),
+                memory_id=nd.get("memory_id"),
+                created_at=datetime.fromisoformat(nd["created_at"]),
+                access_count=nd.get("access_count", 0),
+                last_accessed=(
+                    datetime.fromisoformat(nd["last_accessed"])
+                    if nd.get("last_accessed")
+                    else None
+                ),
+                metadata=nd.get("metadata", {}),
+            )
+            graph.add_node(node)
+
+        for ed in data.get("edges", []):
+            edge = SemanticEdge(
+                source_id=ed["source_id"],
+                target_id=ed["target_id"],
+                relation=ed.get("relation", ""),
+                weight=ed.get("weight", 1.0),
+                similarity=ed.get("similarity"),
+                metadata=ed.get("metadata", {}),
+            )
+            graph.add_edge(edge)
+
+        return graph

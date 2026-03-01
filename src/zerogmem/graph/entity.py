@@ -469,6 +469,7 @@ class EntityGraph:
                     "last_seen": n.last_seen.isoformat(),
                     "mention_count": n.mention_count,
                     "importance": n.importance,
+                    "metadata": n.metadata,
                 }
                 for n in self.nodes.values()
             ],
@@ -480,7 +481,59 @@ class EntityGraph:
                     "relation": e.relation,
                     "negated": e.negated,
                     "confidence": e.confidence,
+                    "evidence": e.evidence,
+                    "first_seen": e.first_seen.isoformat(),
+                    "last_confirmed": e.last_confirmed.isoformat(),
+                    "temporal_scope": {
+                        "start": e.temporal_scope.start.isoformat() if e.temporal_scope and e.temporal_scope.start else None,
+                        "end": e.temporal_scope.end.isoformat() if e.temporal_scope and e.temporal_scope.end else None,
+                    } if e.temporal_scope else None,
+                    "metadata": e.metadata,
                 }
                 for e in self.edges.values()
             ]
         }
+
+    @classmethod
+    def from_dict(cls, data: Dict[str, Any]) -> "EntityGraph":
+        """Deserialize graph from dictionary."""
+        graph = cls()
+        for nd in data.get("nodes", []):
+            node = EntityNode(
+                id=nd["id"],
+                name=nd.get("name", ""),
+                entity_type=EntityType(nd.get("type", "unknown")),
+                aliases=nd.get("aliases", []),
+                attributes=nd.get("attributes", {}),
+                first_seen=datetime.fromisoformat(nd["first_seen"]),
+                last_seen=datetime.fromisoformat(nd["last_seen"]),
+                mention_count=nd.get("mention_count", 1),
+                importance=nd.get("importance", 0.5),
+                metadata=nd.get("metadata", {}),
+            )
+            graph.add_node(node)
+
+        for ed in data.get("edges", []):
+            temporal_scope = None
+            if ed.get("temporal_scope"):
+                ts = ed["temporal_scope"]
+                temporal_scope = TimeRange(
+                    start=datetime.fromisoformat(ts["start"]) if ts.get("start") else None,
+                    end=datetime.fromisoformat(ts["end"]) if ts.get("end") else None,
+                )
+            edge = EntityEdge(
+                id=ed["id"],
+                source_id=ed["source_id"],
+                target_id=ed["target_id"],
+                relation=ed.get("relation", ""),
+                negated=ed.get("negated", False),
+                confidence=ed.get("confidence", 1.0),
+                temporal_scope=temporal_scope,
+                evidence=ed.get("evidence", []),
+                first_seen=datetime.fromisoformat(ed["first_seen"]) if ed.get("first_seen") else datetime.now(),
+                last_confirmed=datetime.fromisoformat(ed["last_confirmed"]) if ed.get("last_confirmed") else datetime.now(),
+                metadata=ed.get("metadata", {}),
+            )
+            graph.add_edge(edge)
+
+        return graph

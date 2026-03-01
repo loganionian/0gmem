@@ -342,6 +342,7 @@ class CausalGraph:
                     "memory_id": n.memory_id,
                     "timestamp": n.timestamp.isoformat() if n.timestamp else None,
                     "confidence": n.confidence,
+                    "metadata": n.metadata,
                 }
                 for n in self.nodes.values()
             ],
@@ -353,7 +354,44 @@ class CausalGraph:
                     "strength": e.strength,
                     "relation_type": e.relation_type,
                     "confidence": e.confidence,
+                    "evidence": e.evidence,
+                    "temporal_lag": e.temporal_lag,
+                    "metadata": e.metadata,
                 }
                 for e in self.edges.values()
             ]
         }
+
+    @classmethod
+    def from_dict(cls, data: Dict[str, Any]) -> "CausalGraph":
+        """Deserialize graph from dictionary."""
+        graph = cls()
+        for nd in data.get("nodes", []):
+            node = CausalNode(
+                id=nd["id"],
+                content=nd.get("content", ""),
+                event_type=nd.get("event_type", "event"),
+                preconditions=nd.get("preconditions", []),
+                effects=nd.get("effects", []),
+                memory_id=nd.get("memory_id"),
+                timestamp=datetime.fromisoformat(nd["timestamp"]) if nd.get("timestamp") else None,
+                confidence=nd.get("confidence", 1.0),
+                metadata=nd.get("metadata", {}),
+            )
+            graph.add_node(node)
+
+        for ed in data.get("edges", []):
+            edge = CausalEdge(
+                id=ed["id"],
+                cause_id=ed["cause_id"],
+                effect_id=ed["effect_id"],
+                strength=ed.get("strength", 1.0),
+                relation_type=ed.get("relation_type", "causes"),
+                evidence=ed.get("evidence", []),
+                temporal_lag=ed.get("temporal_lag"),
+                confidence=ed.get("confidence", 1.0),
+                metadata=ed.get("metadata", {}),
+            )
+            graph.add_edge(edge)
+
+        return graph

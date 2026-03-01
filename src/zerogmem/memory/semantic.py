@@ -429,7 +429,11 @@ class SemanticMemoryStore:
         }
 
     def to_dict(self) -> Dict[str, Any]:
-        """Serialize semantic memory."""
+        """Serialize semantic memory.
+
+        Note: Embeddings are NOT included. They must be saved separately
+        and passed to from_dict().
+        """
         return {
             "facts": [
                 {
@@ -439,10 +443,68 @@ class SemanticMemoryStore:
                     "predicate": f.predicate,
                     "object": f.object,
                     "confidence": f.confidence,
-                    "negated": f.negated,
-                    "category": f.category,
+                    "sources": f.sources,
+                    "contradictions": f.contradictions,
+                    "first_learned": f.first_learned.isoformat(),
+                    "last_confirmed": f.last_confirmed.isoformat(),
                     "confirmation_count": f.confirmation_count,
+                    "negated": f.negated,
+                    "negation_source": f.negation_source,
+                    "category": f.category,
+                    "tags": f.tags,
+                    "metadata": f.metadata,
                 }
                 for f in self.facts.values()
             ]
         }
+
+    @classmethod
+    def from_dict(
+        cls,
+        data: Dict[str, Any],
+        embeddings_map: Optional[Dict[str, np.ndarray]] = None,
+    ) -> "SemanticMemoryStore":
+        """Deserialize semantic memory from dictionary.
+
+        Args:
+            data: Output of to_dict().
+            embeddings_map: Map of fact_id -> embedding.
+        """
+        embeddings_map = embeddings_map or {}
+        store = cls()
+
+        for fd in data.get("facts", []):
+            fact = Fact(
+                id=fd["id"],
+                content=fd.get("content", ""),
+                subject=fd.get("subject", ""),
+                predicate=fd.get("predicate", ""),
+                object=fd.get("object", ""),
+                confidence=fd.get("confidence", 1.0),
+                sources=fd.get("sources", []),
+                contradictions=fd.get("contradictions", []),
+                first_learned=(
+                    datetime.fromisoformat(fd["first_learned"])
+                    if fd.get("first_learned")
+                    else datetime.now()
+                ),
+                last_confirmed=(
+                    datetime.fromisoformat(fd["last_confirmed"])
+                    if fd.get("last_confirmed")
+                    else datetime.now()
+                ),
+                confirmation_count=fd.get("confirmation_count", 1),
+                negated=fd.get("negated", False),
+                negation_source=fd.get("negation_source"),
+                embedding=embeddings_map.get(fd["id"]),
+                category=fd.get("category", ""),
+                tags=fd.get("tags", []),
+                metadata=fd.get("metadata", {}),
+            )
+            # Directly populate to avoid duplicate-detection via add_fact
+            store.facts[fact.id] = fact
+            store._index_fact(fact)
+            if fact.negated:
+                store._negated_facts.add(fact.id)
+
+        return store
