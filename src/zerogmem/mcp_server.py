@@ -140,6 +140,7 @@ MAX_TOPIC_LENGTH = 500
 MAX_ENTITY_LENGTH = 500
 MAX_TIME_DESC_LENGTH = 500
 MAX_METADATA_LENGTH = 10_000
+MAX_PATH_LENGTH = 1_000
 MIN_MAX_RESULTS = 1
 MAX_MAX_RESULTS = 100
 
@@ -698,6 +699,144 @@ async def clear_all_memories() -> str:
         finally:
             elapsed_ms = (time.monotonic() - t0) * 1000
             _metrics.record("clear_all", elapsed_ms, error=error)
+
+
+@mcp.tool()
+async def export_memory(output_path: Optional[str] = None) -> str:
+    """Export all memories to a portable ZIP archive for backup or migration.
+
+    Creates a single .zip file containing the full memory state (structure,
+    embeddings, and metadata). This file can be imported on another machine
+    or used to restore after clearing memories.
+
+    Args:
+        output_path: Optional destination path for the archive. Defaults to
+                     <data_dir>/exports/0gmem_export_<timestamp>.zip
+
+    Returns:
+        Path to the created archive and summary counts
+    """
+    async with _lock:
+        if output_path is not None:
+            if len(output_path) > MAX_PATH_LENGTH:
+                return f"Error: 'output_path' exceeds maximum length of {MAX_PATH_LENGTH} characters."
+            if not output_path.endswith(".zip"):
+                return "Error: 'output_path' must end with '.zip'."
+
+        t0 = time.monotonic()
+        error = False
+        try:
+            _initialize_memory()
+
+            memory_dir = _get_memory_dir()
+
+            if output_path is None:
+                exports_dir = memory_dir / "exports"
+                timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+                archive_path = exports_dir / f"0gmem_export_{timestamp}.zip"
+            else:
+                archive_path = Path(output_path)
+
+            from zerogmem.persistence import export_memory_archive
+
+            summary = export_memory_archive(_memory_manager, archive_path, memory_dir)
+
+            parts = [
+                f"Memory exported successfully to: {summary['archive_path']}",
+                f"- Memories: {summary['memories']}",
+                f"- Episodes: {summary['episodes']}",
+                f"- Facts: {summary['facts']}",
+                f"- Entities: {summary['entities']}",
+                f"- Embeddings: {summary['embeddings']}",
+            ]
+            logger.info(f"Exported memory to {summary['archive_path']}")
+            return "\n".join(parts)
+
+        except Exception as e:
+            error = True
+            logger.error(f"Error exporting memory: {e}")
+            return f"Error exporting memory: {str(e)}"
+        finally:
+            elapsed_ms = (time.monotonic() - t0) * 1000
+            _metrics.record("export_memory", elapsed_ms, error=error)
+
+
+@mcp.tool()
+async def import_memory(archive_path: str, merge: bool = False) -> str:
+    """Import memories from a previously exported ZIP archive.
+
+    Replaces the current memory state with the contents of the archive.
+    Use this to restore from a backup or migrate memories from another machine.
+
+    Args:
+        archive_path: Path to the .zip archive to import
+        merge: If True, merge with existing memories (not yet supported)
+
+    Returns:
+        Confirmation with imported memory counts
+    """
+    async with _lock:
+        err = _validate_string(archive_path, "archive_path", MAX_PATH_LENGTH)
+        if err:
+            return err
+        if not archive_path.endswith(".zip"):
+            return "Error: 'archive_path' must end with '.zip'."
+
+        if merge:
+            return (
+                "Error: Merge import is not yet supported. "
+                "Use merge=False (default) to replace current memory state."
+            )
+
+        t0 = time.monotonic()
+        error = False
+        try:
+            _initialize_memory()
+
+            from zerogmem.persistence import import_memory_archive, save_memory_state
+
+            global _memory_manager, _retriever
+
+            restored = import_memory_archive(archive_path, _encoder.get_embedding)
+            if restored is None:
+                return "Error: Failed to import archive. Check that the file is a valid 0GMem export."
+
+            # Replace current state
+            _memory_manager = restored
+
+            # Re-create retriever with new manager
+            from zerogmem import Retriever
+            _, _, retriever_config = _build_configs()
+            _retriever = Retriever(
+                _memory_manager, embedding_fn=_encoder.get_embedding,
+                config=retriever_config,
+            )
+
+            # Save imported state to data dir
+            save_memory_state(_memory_manager, _get_memory_dir())
+
+            stats = _memory_manager.get_stats()
+            ep = stats.get("episodic_memory", {})
+            sem = stats.get("semantic_memory", {})
+            g = stats.get("graph", {})
+
+            parts = [
+                "Memory imported successfully.",
+                f"- Memories: {len(_memory_manager.graph.memories)}",
+                f"- Episodes: {ep.get('total_episodes', 0)}",
+                f"- Facts: {sem.get('total_facts', 0)}",
+                f"- Entities: {g.get('entity_nodes', 0)}",
+            ]
+            logger.info(f"Imported memory from {archive_path}")
+            return "\n".join(parts)
+
+        except Exception as e:
+            error = True
+            logger.error(f"Error importing memory: {e}")
+            return f"Error importing memory: {str(e)}"
+        finally:
+            elapsed_ms = (time.monotonic() - t0) * 1000
+            _metrics.record("import_memory", elapsed_ms, error=error)
 
 
 def main():

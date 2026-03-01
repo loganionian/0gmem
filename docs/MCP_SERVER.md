@@ -59,6 +59,8 @@ Once configured, Claude Code will have access to these tools:
 | `get_memory_summary` | Get statistics about stored memories |
 | `start_new_session` | Start a new conversation session |
 | `end_conversation_session` | End session and consolidate memories |
+| `export_memory` | Export memories to a portable ZIP archive |
+| `import_memory` | Import memories from a ZIP archive |
 | `clear_all_memories` | Delete all stored memories |
 
 ## Usage Examples

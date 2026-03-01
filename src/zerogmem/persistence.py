@@ -18,6 +18,8 @@ import logging
 import os
 import shutil
 import tempfile
+import zipfile
+from datetime import datetime
 from pathlib import Path
 from typing import Any, Callable, Dict, Optional
 
@@ -306,4 +308,139 @@ def load_memory_state(
         f"{len(manager.episodic_memory.episodes)} episodes, "
         f"{len(manager.semantic_memory.facts)} facts"
     )
+    return manager
+
+
+# ---------------------------------------------------------------------------
+# Export / Import
+# ---------------------------------------------------------------------------
+
+EXPORT_FORMAT_VERSION = 1
+METADATA_FILENAME = "export_metadata.json"
+
+
+def export_memory_archive(
+    manager: MemoryManager,
+    archive_path: str | Path,
+    data_dir: str | Path,
+) -> Dict[str, Any]:
+    """Export memory state to a portable ZIP archive.
+
+    The archive contains:
+    - memory_state.json   (structural data)
+    - memory_embeddings.npz (vector data)
+    - export_metadata.json (version, counts, timestamp)
+
+    Args:
+        manager: The MemoryManager to export.
+        archive_path: Destination path for the .zip file.
+        data_dir: Working directory used by save_memory_state().
+
+    Returns:
+        Summary dict with archive path and counts.
+    """
+    archive_path = Path(archive_path)
+    data_dir = Path(data_dir)
+
+    # Ensure latest state is written to data_dir
+    save_summary = save_memory_state(manager, data_dir)
+
+    # Build metadata
+    from zerogmem import __version__
+
+    emb_count = save_summary["embeddings_saved"]
+    metadata = {
+        "format_version": EXPORT_FORMAT_VERSION,
+        "exported_at": datetime.now().isoformat(),
+        "source_dir": str(data_dir),
+        "zerogmem_version": __version__,
+        "counts": {
+            "memories": save_summary["memories"],
+            "episodes": save_summary["episodes"],
+            "facts": save_summary["facts"],
+            "entities": save_summary["entities"],
+            "embeddings": emb_count,
+        },
+    }
+
+    # Create archive
+    archive_path.parent.mkdir(parents=True, exist_ok=True)
+    with zipfile.ZipFile(archive_path, "w", zipfile.ZIP_DEFLATED) as zf:
+        # State JSON
+        state_file = data_dir / STATE_FILENAME
+        if state_file.exists():
+            zf.write(state_file, STATE_FILENAME)
+
+        # Embeddings NPZ
+        emb_file = data_dir / EMBEDDINGS_FILENAME
+        if emb_file.exists():
+            zf.write(emb_file, EMBEDDINGS_FILENAME)
+
+        # Metadata
+        zf.writestr(METADATA_FILENAME, json.dumps(metadata, indent=2))
+
+    logger.info(f"Exported memory archive to {archive_path}")
+    return {
+        "archive_path": str(archive_path),
+        **metadata["counts"],
+    }
+
+
+def import_memory_archive(
+    archive_path: str | Path,
+    embedding_fn: Optional[callable] = None,
+) -> Optional[MemoryManager]:
+    """Import memory state from a ZIP archive.
+
+    Args:
+        archive_path: Path to the .zip archive.
+        embedding_fn: Embedding function to set on restored manager.
+
+    Returns:
+        Restored MemoryManager, or None on failure.
+    """
+    archive_path = Path(archive_path)
+
+    if not archive_path.exists():
+        logger.warning(f"Archive not found: {archive_path}")
+        return None
+
+    if not zipfile.is_zipfile(archive_path):
+        logger.warning(f"Not a valid ZIP file: {archive_path}")
+        return None
+
+    with zipfile.ZipFile(archive_path, "r") as zf:
+        names = zf.namelist()
+
+        # Validate required file
+        if STATE_FILENAME not in names:
+            logger.warning(
+                f"Archive missing required file '{STATE_FILENAME}': {archive_path}"
+            )
+            return None
+
+        # Check format version if metadata present
+        if METADATA_FILENAME in names:
+            try:
+                meta = json.loads(zf.read(METADATA_FILENAME))
+                version = meta.get("format_version", 1)
+                if version > EXPORT_FORMAT_VERSION:
+                    logger.warning(
+                        f"Archive format version {version} is newer than "
+                        f"supported version {EXPORT_FORMAT_VERSION}."
+                    )
+                    return None
+            except (json.JSONDecodeError, KeyError) as e:
+                logger.warning(f"Corrupt export metadata, proceeding anyway: {e}")
+
+        # Extract to temp directory and load
+        tmp_dir = tempfile.mkdtemp(prefix="0gmem_import_")
+        try:
+            zf.extractall(tmp_dir)
+            manager = load_memory_state(tmp_dir, embedding_fn)
+        finally:
+            shutil.rmtree(tmp_dir, ignore_errors=True)
+
+    if manager is not None:
+        logger.info(f"Imported memory archive from {archive_path}")
     return manager
