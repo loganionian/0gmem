@@ -160,7 +160,9 @@ async def retrieve_memories(
         _initialize_memory()
 
         # Retrieve relevant memories
-        result = _retriever.retrieve(query, top_k=max_results)
+        result = _retriever.retrieve(query)
+        if result.results:
+            result.results = result.results[:max_results]
 
         if not result.composed_context or result.composed_context.strip() == "":
             return "No relevant memories found for this query."
@@ -204,7 +206,9 @@ async def search_memories_by_entity(
 
         # Use the retriever with an entity-focused query
         query = f"What do I know about {entity_name}?"
-        result = _retriever.retrieve(query, top_k=max_results)
+        result = _retriever.retrieve(query)
+        if result.results:
+            result.results = result.results[:max_results]
 
         if not result.composed_context or result.composed_context.strip() == "":
             return f"No memories found about '{entity_name}'."
@@ -240,7 +244,9 @@ async def search_memories_by_time(
 
         # Use temporal query
         query = f"What happened {time_description}?"
-        result = _retriever.retrieve(query, top_k=max_results)
+        result = _retriever.retrieve(query)
+        if result.results:
+            result.results = result.results[:max_results]
 
         if not result.composed_context or result.composed_context.strip() == "":
             return f"No memories found for time period: '{time_description}'."
