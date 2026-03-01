@@ -16,6 +16,7 @@ import asyncio
 import atexit
 import json
 import os
+import signal
 import sys
 import time
 from datetime import datetime
@@ -44,7 +45,7 @@ _retriever = None
 _initialized = False
 _memory_dir = None
 _store_count = 0  # Counter for autosave
-_autosave_interval = int(os.environ.get("ZEROGMEM_AUTOSAVE_INTERVAL", "5"))
+_autosave_interval = int(os.environ.get("ZEROGMEM_AUTOSAVE_INTERVAL", "1"))
 
 # Serializes all tool handler access to shared state
 _lock = asyncio.Lock()
@@ -222,6 +223,16 @@ def _initialize_memory():
 
         # Register atexit handler to save state on shutdown
         atexit.register(_save_state)
+
+        # Register SIGTERM handler — atexit does NOT fire on signal
+        # termination, and MCP stdio servers are killed by SIGTERM when
+        # the host (e.g. Claude Code) exits.
+        def _handle_sigterm(signum, frame):
+            logger.info("Received SIGTERM, saving state before exit...")
+            _save_state()
+            sys.exit(0)
+
+        signal.signal(signal.SIGTERM, _handle_sigterm)
 
         _initialized = True
         logger.info("0GMem initialized successfully")

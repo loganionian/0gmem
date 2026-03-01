@@ -598,13 +598,104 @@ class MemoryManager:
 
         return context
 
+    def _episode_to_dict(self, ep: Episode) -> Dict[str, Any]:
+        """Serialize a single Episode to a dictionary."""
+        return {
+            "id": ep.id,
+            "summary": ep.summary,
+            "title": ep.title,
+            "start_time": ep.start_time.isoformat(),
+            "end_time": ep.end_time.isoformat() if ep.end_time else None,
+            "session_id": ep.session_id,
+            "participants": ep.participants,
+            "participant_names": ep.participant_names,
+            "location": ep.location,
+            "topics": ep.topics,
+            "emotional_valence": ep.emotional_valence,
+            "importance": ep.importance,
+            "retrieval_count": ep.retrieval_count,
+            "last_retrieved": ep.last_retrieved.isoformat() if ep.last_retrieved else None,
+            "created_at": ep.created_at.isoformat(),
+            "extracted_facts": ep.extracted_facts,
+            "archived": ep.archived,
+            "archive_ref": ep.archive_ref,
+            "metadata": ep.metadata,
+            "messages": [
+                {
+                    "id": msg.id,
+                    "speaker": msg.speaker,
+                    "content": msg.content,
+                    "timestamp": msg.timestamp.isoformat(),
+                    "entities_mentioned": msg.entities_mentioned,
+                    "sentiment": msg.sentiment,
+                    "metadata": msg.metadata,
+                }
+                for msg in ep.messages
+            ],
+        }
+
+    @staticmethod
+    def _episode_from_dict(
+        ep_data: Dict[str, Any],
+        embeddings_map: Optional[Dict[str, np.ndarray]] = None,
+    ) -> Episode:
+        """Deserialize a single Episode from a dictionary."""
+        embeddings_map = embeddings_map or {}
+        messages = []
+        for msg_data in ep_data.get("messages", []):
+            messages.append(EpisodeMessage(
+                id=msg_data.get("id", str(uuid.uuid4())),
+                speaker=msg_data.get("speaker", ""),
+                content=msg_data.get("content", ""),
+                timestamp=datetime.fromisoformat(msg_data["timestamp"]),
+                entities_mentioned=msg_data.get("entities_mentioned", []),
+                sentiment=msg_data.get("sentiment", 0.0),
+                metadata=msg_data.get("metadata", {}),
+            ))
+        return Episode(
+            id=ep_data["id"],
+            summary=ep_data.get("summary", ""),
+            title=ep_data.get("title", ""),
+            messages=messages,
+            start_time=datetime.fromisoformat(ep_data["start_time"]),
+            end_time=(
+                datetime.fromisoformat(ep_data["end_time"])
+                if ep_data.get("end_time")
+                else None
+            ),
+            session_id=ep_data.get("session_id"),
+            participants=ep_data.get("participants", []),
+            participant_names=ep_data.get("participant_names", []),
+            location=ep_data.get("location"),
+            topics=ep_data.get("topics", []),
+            emotional_valence=ep_data.get("emotional_valence", 0.0),
+            importance=ep_data.get("importance", 0.5),
+            summary_embedding=embeddings_map.get(ep_data["id"]),
+            retrieval_count=ep_data.get("retrieval_count", 0),
+            last_retrieved=(
+                datetime.fromisoformat(ep_data["last_retrieved"])
+                if ep_data.get("last_retrieved")
+                else None
+            ),
+            created_at=(
+                datetime.fromisoformat(ep_data["created_at"])
+                if ep_data.get("created_at")
+                else datetime.now()
+            ),
+            extracted_facts=ep_data.get("extracted_facts", []),
+            archived=ep_data.get("archived", False),
+            archive_ref=ep_data.get("archive_ref"),
+            metadata=ep_data.get("metadata", {}),
+        )
+
     def to_dict(self) -> Dict[str, Any]:
         """Serialize the entire memory system.
 
         Note: Working memory is ephemeral and NOT serialized.
         Embeddings are NOT included — save separately via persistence module.
+        The in-flight current_episode IS serialized so it survives restarts.
         """
-        return {
+        result = {
             "config": {
                 "working_memory_capacity": self.config.working_memory_capacity,
                 "working_memory_decay_rate": self.config.working_memory_decay_rate,
@@ -621,6 +712,10 @@ class MemoryManager:
             "episodic": self.episodic_memory.to_dict(),
             "semantic": self.semantic_memory.to_dict(),
         }
+        # Serialize in-flight episode so it isn't lost on unexpected shutdown
+        if self.current_episode and self.current_episode.messages:
+            result["current_episode"] = self._episode_to_dict(self.current_episode)
+        return result
 
     @classmethod
     def from_dict(
@@ -670,5 +765,11 @@ class MemoryManager:
             )
 
         manager.current_session_id = data.get("current_session_id")
+
+        # Restore in-flight episode if it was serialized
+        if "current_episode" in data:
+            manager.current_episode = cls._episode_from_dict(
+                data["current_episode"], embeddings_map
+            )
 
         return manager
