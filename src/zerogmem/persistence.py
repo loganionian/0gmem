@@ -74,14 +74,22 @@ class EmbeddingRegistry:
     def load(path: Path) -> Dict[str, np.ndarray]:
         """Load embeddings from NPZ file.
 
-        Returns a dict of {key: np.ndarray}.
+        Returns a dict of {key: np.ndarray}. Returns empty dict if
+        the file is missing or corrupt.
         """
         npz_path = path / EMBEDDINGS_FILENAME
         if not npz_path.exists():
             return {}
 
-        data = np.load(npz_path, allow_pickle=False)
-        return {key: data[key] for key in data.files}
+        try:
+            data = np.load(npz_path, allow_pickle=False)
+            return {key: data[key] for key in data.files}
+        except Exception as e:
+            logger.warning(
+                f"Corrupt embeddings file {npz_path}, "
+                f"proceeding without embeddings: {e}"
+            )
+            return {}
 
     @property
     def count(self) -> int:
@@ -165,58 +173,89 @@ def load_memory_state(
 ) -> Optional[MemoryManager]:
     """Load memory state from disk.
 
+    Recovery cascade:
+    1. Try primary JSON file. On failure, try .bak backup.
+    2. If both corrupt, return None (caller creates fresh state).
+    3. NPZ corruption is independent: proceed without embeddings.
+    4. from_dict failure: return None (malformed JSON structure).
+
     Args:
         path: Directory path containing state files.
         embedding_fn: Embedding function to set on restored manager.
 
     Returns:
-        Restored MemoryManager, or None if no state file exists.
+        Restored MemoryManager, or None if no valid state file exists.
     """
     path = Path(path)
     state_file = path / STATE_FILENAME
+    backup_file = path / f"{STATE_FILENAME}.bak"
 
-    if not state_file.exists():
-        logger.info(f"No state file at {state_file}, returning None")
+    # --- Step 1: Load JSON state with fallback to .bak ---
+    state = None
+    source_label = None
+
+    if state_file.exists():
+        try:
+            with open(state_file) as f:
+                state = json.load(f)
+            source_label = "primary"
+        except (json.JSONDecodeError, OSError) as e:
+            logger.warning(f"Corrupt primary state file {state_file}: {e}")
+
+    if state is None and backup_file.exists():
+        try:
+            with open(backup_file) as f:
+                state = json.load(f)
+            source_label = "backup"
+            logger.warning(
+                f"Recovered from backup file {backup_file}. "
+                f"Primary state file was corrupt or missing."
+            )
+        except (json.JSONDecodeError, OSError) as e:
+            logger.warning(f"Backup state file also corrupt {backup_file}: {e}")
+
+    if state is None:
+        if state_file.exists() or backup_file.exists():
+            logger.warning(
+                "All state files are corrupt. Starting with fresh memory state."
+            )
+        else:
+            logger.info(f"No state file at {state_file}, returning None")
         return None
 
-    # Load JSON state
-    with open(state_file) as f:
-        state = json.load(f)
-
-    # Load embeddings
+    # --- Step 2: Load embeddings (independent, non-fatal) ---
     raw_embeddings = EmbeddingRegistry.load(path)
 
     # Build embeddings map for MemoryManager.from_dict
-    # We need to route embeddings to the right components:
-    # - "memory_id" -> unified graph memory embedding
-    # - "semantic_<id>" -> semantic graph node embedding
-    # - "episode_summary_<id>" / "episode_full_<id>" -> episodic
-    # - "fact_<id>" -> semantic memory fact embedding
-    #
-    # MemoryManager.from_dict passes the full map to each sub-component.
-    # Each sub-component's from_dict picks the keys it needs.
-
     embeddings_map = {}
 
     for key, emb in raw_embeddings.items():
         if key.startswith("episode_summary_"):
             eid = key[len("episode_summary_"):]
-            embeddings_map[eid] = emb  # EpisodicMemory.from_dict keys by episode_id
+            embeddings_map[eid] = emb
         elif key.startswith("episode_full_"):
             pass  # full_embedding not restored currently (optional)
         elif key.startswith("fact_"):
             fid = key[len("fact_"):]
-            embeddings_map[fid] = emb  # SemanticMemoryStore.from_dict keys by fact_id
+            embeddings_map[fid] = emb
         elif key.startswith("semantic_"):
-            embeddings_map[key] = emb  # UnifiedMemoryGraph.from_dict routes these
+            embeddings_map[key] = emb
         else:
             # Memory ID (unified graph)
             embeddings_map[key] = emb
 
-    manager = MemoryManager.from_dict(state, embedding_fn, embeddings_map)
+    # --- Step 3: Deserialize (guard against malformed JSON structure) ---
+    try:
+        manager = MemoryManager.from_dict(state, embedding_fn, embeddings_map)
+    except Exception as e:
+        logger.warning(
+            f"Failed to deserialize state from {source_label} file: {e}. "
+            f"Starting with fresh memory state."
+        )
+        return None
 
     logger.info(
-        f"Loaded memory state: "
+        f"Loaded memory state (from {source_label}): "
         f"{len(manager.graph.memories)} memories, "
         f"{len(manager.episodic_memory.episodes)} episodes, "
         f"{len(manager.semantic_memory.facts)} facts"

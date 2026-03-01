@@ -48,6 +48,34 @@ _autosave_interval = int(os.environ.get("ZEROGMEM_AUTOSAVE_INTERVAL", "5"))
 # Serializes all tool handler access to shared state
 _lock = asyncio.Lock()
 
+# --- Input validation limits ---
+MAX_CONTENT_LENGTH = 50_000
+MAX_SPEAKER_LENGTH = 200
+MAX_QUERY_LENGTH = 2_000
+MAX_TOPIC_LENGTH = 500
+MAX_ENTITY_LENGTH = 500
+MAX_TIME_DESC_LENGTH = 500
+MAX_METADATA_LENGTH = 10_000
+MIN_MAX_RESULTS = 1
+MAX_MAX_RESULTS = 100
+
+
+def _validate_string(value: str, field_name: str, max_length: int) -> Optional[str]:
+    """Validate a string input. Returns error message if invalid, None if valid."""
+    if not value or not value.strip():
+        return f"Error: '{field_name}' must not be empty."
+    if len(value) > max_length:
+        return (
+            f"Error: '{field_name}' exceeds maximum length of {max_length:,} "
+            f"characters (got {len(value):,})."
+        )
+    return None
+
+
+def _clamp_max_results(value: int) -> int:
+    """Clamp max_results to valid range."""
+    return max(MIN_MAX_RESULTS, min(MAX_MAX_RESULTS, value))
+
 
 def _get_memory_dir() -> Path:
     """Get the directory for storing memory data."""
@@ -140,6 +168,15 @@ async def store_memory(
         Confirmation message with memory ID
     """
     async with _lock:
+        err = _validate_string(speaker, "speaker", MAX_SPEAKER_LENGTH)
+        if err:
+            return err
+        err = _validate_string(content, "content", MAX_CONTENT_LENGTH)
+        if err:
+            return err
+        if metadata is not None and len(metadata) > MAX_METADATA_LENGTH:
+            return f"Error: 'metadata' exceeds maximum length of {MAX_METADATA_LENGTH:,} characters."
+
         try:
             _ensure_session()
 
@@ -191,6 +228,11 @@ async def retrieve_memories(
         Relevant memory context formatted for use in responses
     """
     async with _lock:
+        err = _validate_string(query, "query", MAX_QUERY_LENGTH)
+        if err:
+            return err
+        max_results = _clamp_max_results(max_results)
+
         try:
             _initialize_memory()
 
@@ -237,6 +279,11 @@ async def search_memories_by_entity(
         All memories mentioning or related to this entity
     """
     async with _lock:
+        err = _validate_string(entity_name, "entity_name", MAX_ENTITY_LENGTH)
+        if err:
+            return err
+        max_results = _clamp_max_results(max_results)
+
         try:
             _initialize_memory()
 
@@ -276,6 +323,11 @@ async def search_memories_by_time(
         Memories from the specified time period
     """
     async with _lock:
+        err = _validate_string(time_description, "time_description", MAX_TIME_DESC_LENGTH)
+        if err:
+            return err
+        max_results = _clamp_max_results(max_results)
+
         try:
             _initialize_memory()
 
@@ -399,6 +451,11 @@ async def start_new_session(topic: Optional[str] = None) -> str:
         Confirmation with the new session ID
     """
     async with _lock:
+        if topic is not None:
+            err = _validate_string(topic, "topic", MAX_TOPIC_LENGTH)
+            if err:
+                return err
+
         try:
             _initialize_memory()
 

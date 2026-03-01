@@ -334,3 +334,71 @@ class TestGraphFromDict:
         np.testing.assert_array_almost_equal(
             restored.nodes[n.id].embedding, emb
         )
+
+
+class TestCorruptionRecovery:
+    """Tests for error recovery on corrupt persistence files."""
+
+    def test_corrupt_json_returns_none(self, tmp_persist_dir):
+        """Corrupt primary JSON with no .bak -> returns None."""
+        state_file = tmp_persist_dir / STATE_FILENAME
+        state_file.write_text("{invalid json!!")
+        result = load_memory_state(tmp_persist_dir)
+        assert result is None
+
+    def test_corrupt_json_falls_back_to_bak(
+        self, populated_manager, mock_embedding_fn, tmp_persist_dir
+    ):
+        """Corrupt primary JSON but valid .bak -> restores from .bak."""
+        # First save, then second save to create .bak
+        save_memory_state(populated_manager, tmp_persist_dir)
+        save_memory_state(populated_manager, tmp_persist_dir)
+
+        # Corrupt the primary
+        state_file = tmp_persist_dir / STATE_FILENAME
+        state_file.write_text("CORRUPT!")
+
+        restored = load_memory_state(tmp_persist_dir, mock_embedding_fn)
+        assert restored is not None
+        assert len(restored.graph.memories) == len(populated_manager.graph.memories)
+
+    def test_both_json_and_bak_corrupt(self, tmp_persist_dir):
+        """Both primary and .bak corrupt -> returns None."""
+        (tmp_persist_dir / STATE_FILENAME).write_text("BAD")
+        (tmp_persist_dir / f"{STATE_FILENAME}.bak").write_text("ALSO BAD")
+        result = load_memory_state(tmp_persist_dir)
+        assert result is None
+
+    def test_corrupt_npz_still_loads_json(
+        self, populated_manager, mock_embedding_fn, tmp_persist_dir
+    ):
+        """Corrupt NPZ -> JSON loads, embeddings empty, no crash."""
+        save_memory_state(populated_manager, tmp_persist_dir)
+
+        # Corrupt the NPZ
+        npz_path = tmp_persist_dir / EMBEDDINGS_FILENAME
+        npz_path.write_bytes(b"this is not a valid npz file")
+
+        restored = load_memory_state(tmp_persist_dir, mock_embedding_fn)
+        assert restored is not None
+        assert len(restored.graph.memories) == len(populated_manager.graph.memories)
+
+    def test_missing_npz_still_loads(
+        self, populated_manager, mock_embedding_fn, tmp_persist_dir
+    ):
+        """Missing NPZ (deleted after save) -> loads without embeddings."""
+        save_memory_state(populated_manager, tmp_persist_dir)
+        (tmp_persist_dir / EMBEDDINGS_FILENAME).unlink()
+
+        restored = load_memory_state(tmp_persist_dir, mock_embedding_fn)
+        assert restored is not None
+        assert len(restored.graph.memories) == len(populated_manager.graph.memories)
+
+    def test_malformed_json_structure_does_not_crash(self, tmp_persist_dir, mock_embedding_fn):
+        """Valid JSON but wrong structure -> should not crash."""
+        state_file = tmp_persist_dir / STATE_FILENAME
+        state_file.write_text('{"not": "a valid state"}')
+        # from_dict uses .get() with defaults, so this produces an empty manager
+        # rather than crashing — either outcome (None or empty manager) is acceptable
+        result = load_memory_state(tmp_persist_dir, mock_embedding_fn)
+        assert result is None or isinstance(result, MemoryManager)
