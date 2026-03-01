@@ -48,7 +48,7 @@ results/
 *.log
 
 # Data files (keep sample)
-data/locomo/*.json
+data/locomo/
 !data/locomo/sample_locomo.json
 
 # Evaluation outputs
