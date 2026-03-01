@@ -317,10 +317,85 @@ class EpisodicMemory:
         episode.archive_ref = archive_ref
 
         # Clear detailed messages to save memory
-        # (In production, you'd move these to cold storage first)
-        # episode.messages = []  # Uncomment for actual archival
+        episode.messages = []
 
         return True
+
+    def remove_episode(self, episode_id: str) -> bool:
+        """Remove an episode and clean up all indexes.
+
+        Returns True if the episode existed and was removed.
+        """
+        episode = self.episodes.pop(episode_id, None)
+        if episode is None:
+            return False
+
+        # Clean time index
+        date_str = episode.start_time.strftime("%Y-%m-%d")
+        if date_str in self._time_index:
+            try:
+                self._time_index[date_str].remove(episode_id)
+            except ValueError:
+                pass
+
+        # Clean participant index
+        for participant in episode.participants + episode.participant_names:
+            s = self._participant_index.get(participant)
+            if s:
+                s.discard(episode_id)
+
+        # Clean topic index
+        for topic in episode.topics:
+            s = self._topic_index.get(topic)
+            if s:
+                s.discard(episode_id)
+
+        # Clean session index
+        if episode.session_id and episode.session_id in self._session_index:
+            try:
+                self._session_index[episode.session_id].remove(episode_id)
+            except ValueError:
+                pass
+
+        # Clean embedding index
+        if episode_id in self._embedding_ids:
+            idx = self._embedding_ids.index(episode_id)
+            self._embedding_ids.pop(idx)
+            self._embeddings.pop(idx)
+
+        return True
+
+    def _eviction_score(self, episode: Episode) -> float:
+        """Score an episode for eviction. Higher = more worth keeping."""
+        age_days = (datetime.now() - episode.created_at).total_seconds() / 86400
+        recency = 1.0 / (1.0 + age_days / 30)
+        access = min(1.0, episode.retrieval_count / 10)
+        importance = episode.importance
+        archived_penalty = 0.5 if episode.archived else 1.0
+        return (0.3 * recency + 0.3 * access + 0.4 * importance) * archived_penalty
+
+    def enforce_capacity(self, max_episodes: int) -> List[Tuple[str, Optional[str]]]:
+        """Evict lowest-scored episodes if over capacity.
+
+        Returns list of (episode_id, session_id) tuples for removed episodes.
+        """
+        if len(self.episodes) <= max_episodes:
+            return []
+
+        scored = [
+            (eid, self._eviction_score(ep))
+            for eid, ep in self.episodes.items()
+        ]
+        scored.sort(key=lambda x: x[1])
+
+        to_remove = len(self.episodes) - max_episodes
+        removed = []
+        for eid, _ in scored[:to_remove]:
+            session_id = self.episodes[eid].session_id
+            self.remove_episode(eid)
+            removed.append((eid, session_id))
+
+        return removed
 
     def _cosine_similarity(self, a: np.ndarray, b: np.ndarray) -> float:
         """Compute cosine similarity."""

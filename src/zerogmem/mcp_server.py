@@ -394,6 +394,24 @@ async def get_memory_summary() -> str:
                 summary_parts.append(f"- Temporal nodes: {g.get('temporal_nodes', 0)}")
                 summary_parts.append("")
 
+            # Capacity
+            if "capacity" in stats:
+                cap = stats["capacity"]
+                ep_stats = stats.get("episodic_memory", {})
+                sem_stats = stats.get("semantic_memory", {})
+                ep_count = ep_stats.get("total_episodes", 0)
+                fact_count = sem_stats.get("total_facts", 0)
+                summary_parts.append("### Capacity")
+                summary_parts.append(
+                    f"- Episodes: {ep_count}/{cap['max_episodes']} "
+                    f"({cap['episode_utilization']:.0%})"
+                )
+                summary_parts.append(
+                    f"- Facts: {fact_count}/{cap['max_facts']} "
+                    f"({cap['fact_utilization']:.0%})"
+                )
+                summary_parts.append("")
+
             # Current session
             if stats.get("current_session"):
                 summary_parts.append(f"### Active Session\n- Session ID: {stats['current_session']}")

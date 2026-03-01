@@ -41,6 +41,9 @@ class MemoryConfig:
     auto_consolidate: bool = True
     consolidation_threshold_days: int = 7
     consolidation_min_retrievals: int = 3
+    max_episodes: int = 500
+    max_facts: int = 5000
+    eviction_batch_size: int = 10
 
 
 class MemoryManager:
@@ -102,12 +105,35 @@ class MemoryManager:
             # Add to episodic memory
             self.episodic_memory.add_episode(self.current_episode)
 
+            # Enforce capacity limits
+            removed_episodes = self.episodic_memory.enforce_capacity(
+                self.config.max_episodes
+            )
+            for _, session_id in removed_episodes:
+                if session_id:
+                    self._cascade_remove_by_session(session_id)
+
+            self.semantic_memory.enforce_capacity(self.config.max_facts)
+
             episode_id = self.current_episode.id
             self.current_episode = None
             self.current_session_id = None
             return episode_id
 
         return None
+
+    def _cascade_remove_by_session(self, session_id: str) -> None:
+        """Remove unified memories linked to an evicted session.
+
+        Finds memories whose session_id matches and removes them
+        from the unified graph.
+        """
+        to_remove = [
+            mid for mid, mem in self.graph.memories.items()
+            if mem.session_id == session_id
+        ]
+        for mid in to_remove:
+            self.graph.remove_memory(mid)
 
     def add_message(
         self,
@@ -513,12 +539,20 @@ class MemoryManager:
 
     def get_stats(self) -> Dict[str, Any]:
         """Get comprehensive statistics about the memory system."""
+        ep_count = len(self.episodic_memory.episodes)
+        fact_count = len(self.semantic_memory.facts)
         return {
             "graph": self.graph.get_stats(),
             "working_memory": self.working_memory.get_stats(),
             "episodic_memory": self.episodic_memory.get_stats(),
             "semantic_memory": self.semantic_memory.get_stats(),
             "current_session": self.current_session_id,
+            "capacity": {
+                "max_episodes": self.config.max_episodes,
+                "max_facts": self.config.max_facts,
+                "episode_utilization": ep_count / self.config.max_episodes if self.config.max_episodes else 0,
+                "fact_utilization": fact_count / self.config.max_facts if self.config.max_facts else 0,
+            },
         }
 
     def get_context_for_response(
@@ -578,6 +612,9 @@ class MemoryManager:
                 "auto_consolidate": self.config.auto_consolidate,
                 "consolidation_threshold_days": self.config.consolidation_threshold_days,
                 "consolidation_min_retrievals": self.config.consolidation_min_retrievals,
+                "max_episodes": self.config.max_episodes,
+                "max_facts": self.config.max_facts,
+                "eviction_batch_size": self.config.eviction_batch_size,
             },
             "current_session_id": self.current_session_id,
             "graph": self.graph.to_dict(),
@@ -608,6 +645,9 @@ class MemoryManager:
             auto_consolidate=config_data.get("auto_consolidate", True),
             consolidation_threshold_days=config_data.get("consolidation_threshold_days", 7),
             consolidation_min_retrievals=config_data.get("consolidation_min_retrievals", 3),
+            max_episodes=config_data.get("max_episodes", 500),
+            max_facts=config_data.get("max_facts", 5000),
+            eviction_batch_size=config_data.get("eviction_batch_size", 10),
         )
 
         manager = cls(config=config)

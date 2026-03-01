@@ -406,6 +406,82 @@ class SemanticMemoryStore:
 
         return profile
 
+    def remove_fact(self, fact_id: str) -> bool:
+        """Remove a fact and clean up all indexes.
+
+        Returns True if the fact existed and was removed.
+        """
+        fact = self.facts.pop(fact_id, None)
+        if fact is None:
+            return False
+
+        # Clean subject index
+        if fact.subject:
+            s = self._subject_index.get(fact.subject)
+            if s:
+                s.discard(fact_id)
+
+        # Clean predicate index
+        if fact.predicate:
+            s = self._predicate_index.get(fact.predicate)
+            if s:
+                s.discard(fact_id)
+
+        # Clean object index
+        if fact.object:
+            s = self._object_index.get(fact.object)
+            if s:
+                s.discard(fact_id)
+
+        # Clean category index
+        if fact.category:
+            s = self._category_index.get(fact.category)
+            if s:
+                s.discard(fact_id)
+
+        # Clean negated set
+        self._negated_facts.discard(fact_id)
+
+        # Clean embedding index
+        if fact_id in self._embedding_ids:
+            idx = self._embedding_ids.index(fact_id)
+            self._embedding_ids.pop(idx)
+            self._embeddings.pop(idx)
+
+        return True
+
+    def _eviction_score(self, fact: Fact) -> float:
+        """Score a fact for eviction. Higher = more worth keeping."""
+        age_days = (datetime.now() - fact.first_learned).total_seconds() / 86400
+        recency = 1.0 / (1.0 + age_days / 30)
+        confirmations = min(1.0, fact.confirmation_count / 5)
+        contradiction_penalty = max(0.1, 1.0 - 0.3 * len(fact.contradictions))
+        negated_penalty = 0.1 if fact.negated else 1.0
+        return (0.2 * recency + 0.3 * confirmations + 0.3 * fact.confidence
+                + 0.2 * contradiction_penalty) * negated_penalty
+
+    def enforce_capacity(self, max_facts: int) -> List[str]:
+        """Evict lowest-scored facts if over capacity.
+
+        Returns list of removed fact IDs.
+        """
+        if len(self.facts) <= max_facts:
+            return []
+
+        scored = [
+            (fid, self._eviction_score(f))
+            for fid, f in self.facts.items()
+        ]
+        scored.sort(key=lambda x: x[1])
+
+        to_remove = len(self.facts) - max_facts
+        removed = []
+        for fid, _ in scored[:to_remove]:
+            self.remove_fact(fid)
+            removed.append(fid)
+
+        return removed
+
     def _cosine_similarity(self, a: np.ndarray, b: np.ndarray) -> float:
         """Compute cosine similarity."""
         norm_a = np.linalg.norm(a)

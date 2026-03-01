@@ -172,6 +172,63 @@ class UnifiedMemoryGraph:
         )
         return self.entity_graph.add_edge(edge)
 
+    def remove_memory(self, memory_id: str) -> bool:
+        """Remove a memory and cascade to all sub-graphs.
+
+        Cleans up temporal, semantic, and causal graph nodes plus
+        entity/concept cross-references. Entity graph nodes are NOT
+        removed (lightweight, permanent knowledge).
+
+        Returns True if the memory existed and was removed.
+        """
+        memory = self.memories.pop(memory_id, None)
+        if memory is None:
+            return False
+
+        # Remove from temporal graph
+        if memory.temporal_node_id:
+            self.temporal_graph.nodes.pop(memory.temporal_node_id, None)
+            self.temporal_graph.edges = [
+                e for e in self.temporal_graph.edges
+                if e.source_id != memory.temporal_node_id
+                and e.target_id != memory.temporal_node_id
+            ]
+
+        # Remove from semantic graph
+        if memory.semantic_node_id:
+            self.semantic_graph.nodes.pop(memory.semantic_node_id, None)
+            self.semantic_graph.edges = [
+                e for e in self.semantic_graph.edges
+                if e.source_id != memory.semantic_node_id
+                and e.target_id != memory.semantic_node_id
+            ]
+            # Remove from embedding index
+            if memory.semantic_node_id in self.semantic_graph._embedding_ids:
+                idx = self.semantic_graph._embedding_ids.index(memory.semantic_node_id)
+                self.semantic_graph._embedding_ids.pop(idx)
+                self.semantic_graph._embeddings.pop(idx)
+
+        # Remove from causal graph
+        if memory.causal_node_id:
+            self.causal_graph.nodes.pop(memory.causal_node_id, None)
+            self.causal_graph.edges = {
+                k: e for k, e in self.causal_graph.edges.items()
+                if e.cause_id != memory.causal_node_id
+                and e.effect_id != memory.causal_node_id
+            }
+
+        # Clean up cross-references
+        for entity_id in memory.entities:
+            s = self._entity_to_memories.get(entity_id)
+            if s:
+                s.discard(memory_id)
+        for concept in memory.concepts:
+            s = self._concept_to_memories.get(concept)
+            if s:
+                s.discard(memory_id)
+
+        return True
+
     def get_memory(self, memory_id: str) -> Optional[UnifiedMemoryItem]:
         """Get a memory by ID."""
         return self.memories.get(memory_id)
