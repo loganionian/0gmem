@@ -148,12 +148,33 @@ python scripts/run_evaluation.py --data-path data/locomo/sample_locomo.json --us
 
 ## Performance
 
-Current LoCoMo benchmark results:
+### LoCoMo Benchmark Results
 
-| Metric | Score |
-|--------|-------|
+The [LoCoMo benchmark](https://snap-research.github.io/locomo/) evaluates long-term conversational memory across multi-session dialogues.
+
+**0GMem Results:**
+
+| Subset | Accuracy |
+|--------|----------|
 | 3-conversation | 95.57% |
 | 10-conversation | 80.41% |
+
+### Comparison with Other Systems
+
+Based on published results from various sources:
+
+| System | Score | Notes |
+|--------|-------|-------|
+| Human Performance | 87.9 F1 | Upper bound ([LoCoMo Paper](https://arxiv.org/abs/2402.17753)) |
+| GPT-4-turbo (4K) | ~32 F1 | Baseline LLM |
+| GPT-3.5-turbo-16K | 37.8 F1 | Extended context window |
+| Best RAG Baseline | 41.4 F1 | Retrieval-augmented generation |
+| MemGPT/Letta | 48-74% | Varies by configuration ([Letta Blog](https://www.letta.com/blog/benchmarking-ai-agent-memory)) |
+| OpenAI Memory | 52.9% | Built-in memory feature |
+| Zep | 58-75% | Results disputed across studies |
+| Mem0 | 66.9-68.5% | Graph-enhanced variant ([Mem0 Research](https://mem0.ai/research)) |
+
+*Note: Metrics vary across studies (F1 vs accuracy, different evaluation protocols). Direct comparisons should be interpreted with caution.*
 
 ## Project Structure
 
@@ -186,16 +207,16 @@ Current LoCoMo benchmark results:
 └── scripts/                # Utility scripts
 ```
 
-## Key Differentiators from EverMemOS
+## Key Architectural Features
 
-| Aspect | EverMemOS | 0GMem |
-|--------|-----------|-------|
-| Temporal Reasoning | Timestamp-based | Allen's Interval Algebra |
-| Graph Structure | Flat documents | Multi-graph (4 views) |
-| Multi-hop | Multiple LLM calls | Graph traversal |
-| Negations | Not explicit | First-class support |
-| Consolidation | LLM summarization (lossy) | Lossless with indexing |
-| Context Composition | Linear | Position-aware |
+| Feature | 0GMem Approach |
+|---------|----------------|
+| Temporal Reasoning | Allen's Interval Algebra for precise time relationships |
+| Graph Structure | Multi-graph with 4 orthogonal views |
+| Multi-hop Reasoning | Graph traversal (no iterative LLM calls) |
+| Negation Handling | First-class support for contradictions |
+| Memory Consolidation | Lossless compression with semantic indexing |
+| Context Composition | Position-aware to combat "lost-in-the-middle" |
 
 ## Contributing
 
@@ -203,9 +224,8 @@ See [CONTRIBUTING.md](CONTRIBUTING.md) for development setup and guidelines.
 
 ## References
 
-- [EverMemOS Paper](https://arxiv.org/abs/2601.02163)
-- [LoCoMo Benchmark](https://snap-research.github.io/locomo/)
-- [LoCoMo Paper (ACL 2024)](https://arxiv.org/abs/2402.17753)
+- [LoCoMo Benchmark](https://snap-research.github.io/locomo/) - Long-term conversational memory evaluation
+- [LoCoMo Paper (ACL 2024)](https://arxiv.org/abs/2402.17753) - "Evaluating Very Long-Term Conversational Memory of LLM Agents"
 
 ## License
 
