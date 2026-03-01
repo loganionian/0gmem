@@ -5,6 +5,41 @@
 
 A next-generation AI memory system designed to achieve state-of-the-art performance on the LoCoMo benchmark for long-term conversational memory.
 
+## Why 0GMem?
+
+Most AI memory systems treat memories as flat text chunks in a vector store — they embed, retrieve, and hope for the best. This works for simple recall but falls apart when conversations grow long and questions get harder: *"When did Alice visit the Alps?"*, *"What does Bob NOT like?"*, *"Who did Alice meet after her trip to Japan?"*
+
+0GMem takes a fundamentally different approach: **structure at write time, intelligence at read time.**
+
+### The Problem with Flat Memory
+
+| Challenge | Flat Vector Store | 0GMem |
+|-----------|------------------|-------|
+| "What does she NOT like?" | Retrieves mentions of "like" — returns both likes and dislikes, often hallucinating | Stores negations as first-class facts; retrieves the correct polarity |
+| "When did X happen?" | Finds the right event but returns the wrong session's date | Event-Date Index resolves dates at ingestion, not retrieval |
+| "Who did A meet after B?" | Single-hop retrieval can't chain temporal + entity reasoning | Multi-graph BFS traverses entity, temporal, and semantic edges simultaneously |
+| Long conversations (900+ messages) | Retrieves too much — LLM accuracy degrades from context noise | Attention filter performs "precise forgetting," the single biggest accuracy driver (+5% on 10-conv) |
+| "Did she say X or Y?" | No contradiction tracking; LLM guesses | Entity graph tracks contradictions and negative relations explicitly |
+
+### Design Principles
+
+- **Encode structure, not just text.** Every message is decomposed into entities, temporal anchors, causal links, and negations at ingestion time — not deferred to retrieval.
+- **Multiple views of the same memory.** Four orthogonal graphs (Temporal, Semantic, Causal, Entity) capture different dimensions of meaning, enabling multi-hop reasoning across all of them.
+- **Cognitive-science-inspired hierarchy.** Working memory (attention-decayed scratchpad), episodic memory (lossless conversation storage), and semantic memory (accumulated facts with confidence tracking) mirror how human memory actually works.
+- **Precise forgetting matters as much as precise remembering.** The attention filter removes redundant and low-relevance context before it reaches the LLM — over-retrieval actively hurts accuracy.
+- **Query-aware retrieval.** Every query is classified by intent, reasoning type, and temporal scope before retrieval begins. A temporal question activates different strategies than an adversarial or multi-hop question.
+
+### How It Compares
+
+| | Mem0 | Zep | MemGPT/Letta | **0GMem** |
+|---|---|---|---|---|
+| Memory structure | Flat facts in vector store | Knowledge graph | Agent-managed paging | **Four orthogonal graphs + three-tier hierarchy** |
+| Temporal reasoning | None | Basic | None | **Allen's Interval Algebra (13 relations) + bitemporal modeling** |
+| Negation handling | None | None | None | **First-class negation storage and retrieval** |
+| Multi-hop reasoning | Single retrieval | Entity traversal | Agent decides | **Simultaneous BFS across entity, temporal, and semantic graphs** |
+| Context quality | Top-k similarity | Top-k similarity | Agent-selected | **Attention-filtered with redundancy removal and diversity enforcement** |
+| LoCoMo accuracy | 66.9–68.5% | 58–75% | 48–74% | **80.4–95.6%** |
+
 ## Key Innovations
 
 0GMem addresses the fundamental limitations of existing memory systems through:
