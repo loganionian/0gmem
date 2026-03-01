@@ -12,6 +12,7 @@ Usage:
     claude mcp add --transport stdio 0gmem -- python -m zerogmem.mcp_server
 """
 
+import asyncio
 import atexit
 import json
 import os
@@ -43,6 +44,9 @@ _initialized = False
 _memory_dir = None
 _store_count = 0  # Counter for autosave
 _autosave_interval = int(os.environ.get("ZEROGMEM_AUTOSAVE_INTERVAL", "5"))
+
+# Serializes all tool handler access to shared state
+_lock = asyncio.Lock()
 
 
 def _get_memory_dir() -> Path:
@@ -135,36 +139,37 @@ async def store_memory(
     Returns:
         Confirmation message with memory ID
     """
-    try:
-        _ensure_session()
+    async with _lock:
+        try:
+            _ensure_session()
 
-        # Parse metadata if provided
-        meta_dict = {}
-        if metadata:
-            try:
-                meta_dict = json.loads(metadata)
-            except json.JSONDecodeError:
-                meta_dict = {"raw_metadata": metadata}
+            # Parse metadata if provided
+            meta_dict = {}
+            if metadata:
+                try:
+                    meta_dict = json.loads(metadata)
+                except json.JSONDecodeError:
+                    meta_dict = {"raw_metadata": metadata}
 
-        # Add timestamp
-        meta_dict["stored_at"] = datetime.now().isoformat()
+            # Add timestamp
+            meta_dict["stored_at"] = datetime.now().isoformat()
 
-        # Store the message
-        msg_id = _memory_manager.add_message(speaker, content, metadata=meta_dict)
+            # Store the message
+            msg_id = _memory_manager.add_message(speaker, content, metadata=meta_dict)
 
-        # Autosave periodically
-        global _store_count
-        _store_count += 1
-        if _store_count % _autosave_interval == 0:
-            _save_state()
-            logger.info(f"Autosaved after {_store_count} stores")
+            # Autosave periodically
+            global _store_count
+            _store_count += 1
+            if _store_count % _autosave_interval == 0:
+                _save_state()
+                logger.info(f"Autosaved after {_store_count} stores")
 
-        logger.info(f"Stored memory: {msg_id} from {speaker}")
-        return f"Memory stored successfully (ID: {msg_id})"
+            logger.info(f"Stored memory: {msg_id} from {speaker}")
+            return f"Memory stored successfully (ID: {msg_id})"
 
-    except Exception as e:
-        logger.error(f"Error storing memory: {e}")
-        return f"Error storing memory: {str(e)}"
+        except Exception as e:
+            logger.error(f"Error storing memory: {e}")
+            return f"Error storing memory: {str(e)}"
 
 
 @mcp.tool()
@@ -185,32 +190,33 @@ async def retrieve_memories(
     Returns:
         Relevant memory context formatted for use in responses
     """
-    try:
-        _initialize_memory()
+    async with _lock:
+        try:
+            _initialize_memory()
 
-        # Retrieve relevant memories
-        result = _retriever.retrieve(query)
-        if result.results:
-            result.results = result.results[:max_results]
+            # Retrieve relevant memories
+            result = _retriever.retrieve(query)
+            if result.results:
+                result.results = result.results[:max_results]
 
-        if not result.composed_context or result.composed_context.strip() == "":
-            return "No relevant memories found for this query."
+            if not result.composed_context or result.composed_context.strip() == "":
+                return "No relevant memories found for this query."
 
-        # Format the response
-        response_parts = [
-            f"## Retrieved Memories for: \"{query}\"\n",
-            result.composed_context,
-        ]
+            # Format the response
+            response_parts = [
+                f"## Retrieved Memories for: \"{query}\"\n",
+                result.composed_context,
+            ]
 
-        if result.results:
-            response_parts.append(f"\n---\n*Found {len(result.results)} relevant memory segments*")
+            if result.results:
+                response_parts.append(f"\n---\n*Found {len(result.results)} relevant memory segments*")
 
-        logger.info(f"Retrieved {len(result.results)} memories for query: {query[:50]}...")
-        return "\n".join(response_parts)
+            logger.info(f"Retrieved {len(result.results)} memories for query: {query[:50]}...")
+            return "\n".join(response_parts)
 
-    except Exception as e:
-        logger.error(f"Error retrieving memories: {e}")
-        return f"Error retrieving memories: {str(e)}"
+        except Exception as e:
+            logger.error(f"Error retrieving memories: {e}")
+            return f"Error retrieving memories: {str(e)}"
 
 
 @mcp.tool()
@@ -230,25 +236,26 @@ async def search_memories_by_entity(
     Returns:
         All memories mentioning or related to this entity
     """
-    try:
-        _initialize_memory()
+    async with _lock:
+        try:
+            _initialize_memory()
 
-        # Use the retriever with an entity-focused query
-        query = f"What do I know about {entity_name}?"
-        result = _retriever.retrieve(query)
-        if result.results:
-            result.results = result.results[:max_results]
+            # Use the retriever with an entity-focused query
+            query = f"What do I know about {entity_name}?"
+            result = _retriever.retrieve(query)
+            if result.results:
+                result.results = result.results[:max_results]
 
-        if not result.composed_context or result.composed_context.strip() == "":
-            return f"No memories found about '{entity_name}'."
+            if not result.composed_context or result.composed_context.strip() == "":
+                return f"No memories found about '{entity_name}'."
 
-        response = f"## Memories about: {entity_name}\n\n{result.composed_context}"
-        logger.info(f"Found memories for entity: {entity_name}")
-        return response
+            response = f"## Memories about: {entity_name}\n\n{result.composed_context}"
+            logger.info(f"Found memories for entity: {entity_name}")
+            return response
 
-    except Exception as e:
-        logger.error(f"Error searching by entity: {e}")
-        return f"Error searching memories: {str(e)}"
+        except Exception as e:
+            logger.error(f"Error searching by entity: {e}")
+            return f"Error searching memories: {str(e)}"
 
 
 @mcp.tool()
@@ -268,25 +275,26 @@ async def search_memories_by_time(
     Returns:
         Memories from the specified time period
     """
-    try:
-        _initialize_memory()
+    async with _lock:
+        try:
+            _initialize_memory()
 
-        # Use temporal query
-        query = f"What happened {time_description}?"
-        result = _retriever.retrieve(query)
-        if result.results:
-            result.results = result.results[:max_results]
+            # Use temporal query
+            query = f"What happened {time_description}?"
+            result = _retriever.retrieve(query)
+            if result.results:
+                result.results = result.results[:max_results]
 
-        if not result.composed_context or result.composed_context.strip() == "":
-            return f"No memories found for time period: '{time_description}'."
+            if not result.composed_context or result.composed_context.strip() == "":
+                return f"No memories found for time period: '{time_description}'."
 
-        response = f"## Memories from: {time_description}\n\n{result.composed_context}"
-        logger.info(f"Found memories for time: {time_description}")
-        return response
+            response = f"## Memories from: {time_description}\n\n{result.composed_context}"
+            logger.info(f"Found memories for time: {time_description}")
+            return response
 
-    except Exception as e:
-        logger.error(f"Error searching by time: {e}")
-        return f"Error searching memories: {str(e)}"
+        except Exception as e:
+            logger.error(f"Error searching by time: {e}")
+            return f"Error searching memories: {str(e)}"
 
 
 @mcp.tool()
@@ -299,50 +307,51 @@ async def get_memory_summary() -> str:
     Returns:
         Summary of memory contents and statistics
     """
-    try:
-        _initialize_memory()
+    async with _lock:
+        try:
+            _initialize_memory()
 
-        stats = _memory_manager.get_stats()
+            stats = _memory_manager.get_stats()
 
-        # Format the summary
-        summary_parts = ["## 0GMem Memory Summary\n"]
+            # Format the summary
+            summary_parts = ["## 0GMem Memory Summary\n"]
 
-        # Episodic memory stats
-        if "episodic_memory" in stats:
-            ep = stats["episodic_memory"]
-            summary_parts.append("### Episodic Memory")
-            summary_parts.append(f"- Total episodes: {ep.get('total_episodes', 0)}")
-            summary_parts.append(f"- Total messages: {ep.get('total_messages', 0)}")
-            summary_parts.append(f"- Unique participants: {ep.get('unique_participants', 0)}")
-            summary_parts.append("")
+            # Episodic memory stats
+            if "episodic_memory" in stats:
+                ep = stats["episodic_memory"]
+                summary_parts.append("### Episodic Memory")
+                summary_parts.append(f"- Total episodes: {ep.get('total_episodes', 0)}")
+                summary_parts.append(f"- Total messages: {ep.get('total_messages', 0)}")
+                summary_parts.append(f"- Unique participants: {ep.get('unique_participants', 0)}")
+                summary_parts.append("")
 
-        # Semantic memory stats
-        if "semantic_memory" in stats:
-            sem = stats["semantic_memory"]
-            summary_parts.append("### Semantic Memory")
-            summary_parts.append(f"- Total facts: {sem.get('total_facts', 0)}")
-            summary_parts.append(f"- Categories: {len(sem.get('categories', {}))}")
-            summary_parts.append("")
+            # Semantic memory stats
+            if "semantic_memory" in stats:
+                sem = stats["semantic_memory"]
+                summary_parts.append("### Semantic Memory")
+                summary_parts.append(f"- Total facts: {sem.get('total_facts', 0)}")
+                summary_parts.append(f"- Categories: {len(sem.get('categories', {}))}")
+                summary_parts.append("")
 
-        # Graph stats
-        if "graph" in stats:
-            g = stats["graph"]
-            summary_parts.append("### Memory Graph")
-            summary_parts.append(f"- Entity nodes: {g.get('entity_nodes', 0)}")
-            summary_parts.append(f"- Semantic nodes: {g.get('semantic_nodes', 0)}")
-            summary_parts.append(f"- Temporal nodes: {g.get('temporal_nodes', 0)}")
-            summary_parts.append("")
+            # Graph stats
+            if "graph" in stats:
+                g = stats["graph"]
+                summary_parts.append("### Memory Graph")
+                summary_parts.append(f"- Entity nodes: {g.get('entity_nodes', 0)}")
+                summary_parts.append(f"- Semantic nodes: {g.get('semantic_nodes', 0)}")
+                summary_parts.append(f"- Temporal nodes: {g.get('temporal_nodes', 0)}")
+                summary_parts.append("")
 
-        # Current session
-        if stats.get("current_session"):
-            summary_parts.append(f"### Active Session\n- Session ID: {stats['current_session']}")
+            # Current session
+            if stats.get("current_session"):
+                summary_parts.append(f"### Active Session\n- Session ID: {stats['current_session']}")
 
-        logger.info("Generated memory summary")
-        return "\n".join(summary_parts)
+            logger.info("Generated memory summary")
+            return "\n".join(summary_parts)
 
-    except Exception as e:
-        logger.error(f"Error getting summary: {e}")
-        return f"Error getting memory summary: {str(e)}"
+        except Exception as e:
+            logger.error(f"Error getting summary: {e}")
+            return f"Error getting memory summary: {str(e)}"
 
 
 @mcp.tool()
@@ -355,24 +364,25 @@ async def end_conversation_session() -> str:
     Returns:
         Confirmation that the session was ended
     """
-    try:
-        _initialize_memory()
+    async with _lock:
+        try:
+            _initialize_memory()
 
-        if _memory_manager.current_session_id is None:
-            return "No active session to end."
+            if _memory_manager.current_session_id is None:
+                return "No active session to end."
 
-        session_id = _memory_manager.current_session_id
-        _memory_manager.end_session()
+            session_id = _memory_manager.current_session_id
+            _memory_manager.end_session()
 
-        # Save state on session end
-        _save_state()
+            # Save state on session end
+            _save_state()
 
-        logger.info(f"Ended session: {session_id}")
-        return f"Session ended and memories consolidated (Session ID: {session_id})"
+            logger.info(f"Ended session: {session_id}")
+            return f"Session ended and memories consolidated (Session ID: {session_id})"
 
-    except Exception as e:
-        logger.error(f"Error ending session: {e}")
-        return f"Error ending session: {str(e)}"
+        except Exception as e:
+            logger.error(f"Error ending session: {e}")
+            return f"Error ending session: {str(e)}"
 
 
 @mcp.tool()
@@ -388,26 +398,27 @@ async def start_new_session(topic: Optional[str] = None) -> str:
     Returns:
         Confirmation with the new session ID
     """
-    try:
-        _initialize_memory()
+    async with _lock:
+        try:
+            _initialize_memory()
 
-        # End existing session if any
-        if _memory_manager.current_session_id is not None:
-            _memory_manager.end_session()
+            # End existing session if any
+            if _memory_manager.current_session_id is not None:
+                _memory_manager.end_session()
 
-        # Start new session
-        session_id = _memory_manager.start_session()
+            # Start new session
+            session_id = _memory_manager.start_session()
 
-        # Store topic as first message if provided
-        if topic:
-            _memory_manager.add_message("system", f"Session topic: {topic}")
+            # Store topic as first message if provided
+            if topic:
+                _memory_manager.add_message("system", f"Session topic: {topic}")
 
-        logger.info(f"Started new session: {session_id}, topic: {topic}")
-        return f"New session started (ID: {session_id})" + (f" - Topic: {topic}" if topic else "")
+            logger.info(f"Started new session: {session_id}, topic: {topic}")
+            return f"New session started (ID: {session_id})" + (f" - Topic: {topic}" if topic else "")
 
-    except Exception as e:
-        logger.error(f"Error starting session: {e}")
-        return f"Error starting session: {str(e)}"
+        except Exception as e:
+            logger.error(f"Error starting session: {e}")
+            return f"Error starting session: {str(e)}"
 
 
 @mcp.tool()
@@ -419,30 +430,31 @@ async def clear_all_memories() -> str:
     Returns:
         Confirmation that memories were cleared
     """
-    try:
-        global _memory_manager, _encoder, _retriever, _initialized
+    async with _lock:
+        try:
+            global _memory_manager, _encoder, _retriever, _initialized
 
-        # Reset the memory system
-        from zerogmem import MemoryManager, Encoder, Retriever
+            # Reset the memory system
+            from zerogmem import MemoryManager, Encoder, Retriever
 
-        _memory_manager = MemoryManager()
-        _encoder = Encoder()
-        _memory_manager.set_embedding_function(_encoder.get_embedding)
-        _retriever = Retriever(_memory_manager, embedding_fn=_encoder.get_embedding)
+            _memory_manager = MemoryManager()
+            _encoder = Encoder()
+            _memory_manager.set_embedding_function(_encoder.get_embedding)
+            _retriever = Retriever(_memory_manager, embedding_fn=_encoder.get_embedding)
 
-        # Clear any persisted state files
-        memory_dir = _get_memory_dir()
-        for fname in ["memory_state.json", "memory_state.json.bak", "memory_embeddings.npz"]:
-            fpath = memory_dir / fname
-            if fpath.exists():
-                fpath.unlink()
+            # Clear any persisted state files
+            memory_dir = _get_memory_dir()
+            for fname in ["memory_state.json", "memory_state.json.bak", "memory_embeddings.npz"]:
+                fpath = memory_dir / fname
+                if fpath.exists():
+                    fpath.unlink()
 
-        logger.info("All memories cleared")
-        return "All memories have been cleared. Starting fresh."
+            logger.info("All memories cleared")
+            return "All memories have been cleared. Starting fresh."
 
-    except Exception as e:
-        logger.error(f"Error clearing memories: {e}")
-        return f"Error clearing memories: {str(e)}"
+        except Exception as e:
+            logger.error(f"Error clearing memories: {e}")
+            return f"Error clearing memories: {str(e)}"
 
 
 def main():

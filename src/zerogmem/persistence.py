@@ -17,6 +17,7 @@ import json
 import logging
 import os
 import shutil
+import tempfile
 from pathlib import Path
 from typing import Any, Dict, Optional
 
@@ -53,7 +54,20 @@ class EmbeddingRegistry:
                 npz_path.unlink()
             return 0
 
-        np.savez_compressed(path / EMBEDDINGS_FILENAME, **self._store)
+        # Atomic write: save to temp file, then rename.
+        # np.savez_compressed appends .npz if the name doesn't end with it,
+        # so we use a .npz suffix to keep the output path predictable.
+        npz_path = path / EMBEDDINGS_FILENAME
+        fd, tmp_path = tempfile.mkstemp(dir=path, suffix=".npz")
+        try:
+            os.close(fd)
+            np.savez_compressed(tmp_path, **self._store)
+            os.replace(tmp_path, npz_path)
+        except BaseException:
+            # Clean up temp file on any failure
+            if os.path.exists(tmp_path):
+                os.unlink(tmp_path)
+            raise
         return len(self._store)
 
     @staticmethod
@@ -122,9 +136,16 @@ def save_memory_state(manager: MemoryManager, path: str | Path) -> Dict[str, Any
     _collect_embeddings(manager, registry)
     emb_count = registry.save(path)
 
-    # Write JSON
-    with open(state_file, "w") as f:
-        json.dump(state, f, indent=2, default=str)
+    # Atomic write: JSON to temp file, then rename
+    fd, tmp_path = tempfile.mkstemp(dir=path, suffix=".tmp")
+    try:
+        with os.fdopen(fd, "w") as f:
+            json.dump(state, f, indent=2, default=str)
+        os.replace(tmp_path, state_file)
+    except BaseException:
+        if os.path.exists(tmp_path):
+            os.unlink(tmp_path)
+        raise
 
     summary = {
         "state_file": str(state_file),
