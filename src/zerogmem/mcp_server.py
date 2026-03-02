@@ -266,7 +266,7 @@ def _ensure_session() -> None:
 async def store_memory(
     speaker: str,
     content: str,
-    metadata: str | None = None,
+    metadata: str | dict | None = None,
 ) -> str:
     """Store a conversation message or fact in long-term memory.
 
@@ -277,7 +277,7 @@ async def store_memory(
     Args:
         speaker: Who said this (e.g., "user", "assistant", person's name)
         content: The message content or fact to remember
-        metadata: Optional JSON string with additional context
+        metadata: Optional JSON string or dict with additional context
             (e.g., {"topic": "work", "importance": "high"})
 
     Returns:
@@ -290,7 +290,11 @@ async def store_memory(
         err = _validate_string(content, "content", MAX_CONTENT_LENGTH)
         if err:
             return err
-        if metadata is not None and len(metadata) > MAX_METADATA_LENGTH:
+        if (
+            metadata is not None
+            and isinstance(metadata, str)
+            and len(metadata) > MAX_METADATA_LENGTH
+        ):
             return (
                 f"Error: 'metadata' exceeds maximum length of {MAX_METADATA_LENGTH:,} characters."
             )
@@ -301,13 +305,16 @@ async def store_memory(
             _ensure_session()
             assert _memory_manager is not None
 
-            # Parse metadata if provided
-            meta_dict = {}
+            # Parse metadata if provided (accept both dict and JSON string)
+            meta_dict: dict[str, Any] = {}
             if metadata:
-                try:
-                    meta_dict = json.loads(metadata)
-                except json.JSONDecodeError:
-                    meta_dict = {"raw_metadata": metadata}
+                if isinstance(metadata, dict):
+                    meta_dict = metadata
+                elif isinstance(metadata, str):
+                    try:
+                        meta_dict = json.loads(metadata)
+                    except json.JSONDecodeError:
+                        meta_dict = {"raw_metadata": metadata}
 
             # Add timestamp
             meta_dict["stored_at"] = datetime.now().isoformat()
