@@ -253,6 +253,58 @@ def _initialize_memory() -> None:
         _metrics.record("initialize", elapsed_ms, error=error)
 
 
+def _ingest_pending() -> None:
+    """Ingest messages queued by the UserPromptSubmit hook.
+
+    The hook script appends user prompts to ``pending.jsonl`` in the memory
+    data directory.  This function reads and removes those entries, adding
+    them to the in-memory state so they are available for retrieval.
+    """
+    assert _memory_manager is not None
+
+    queue_file = _get_memory_dir() / "pending.jsonl"
+    if not queue_file.exists():
+        return
+
+    try:
+        raw = queue_file.read_text()
+        if not raw.strip():
+            queue_file.unlink(missing_ok=True)
+            return
+
+        entries: list[dict[str, Any]] = []
+        for line in raw.strip().splitlines():
+            line = line.strip()
+            if line:
+                try:
+                    entries.append(json.loads(line))
+                except json.JSONDecodeError:
+                    continue
+
+        # Clear the queue file *before* ingesting so a concurrent hook
+        # append doesn't get lost (worst case: a new line is appended
+        # right after the unlink and picked up next time).
+        queue_file.unlink(missing_ok=True)
+
+        for entry in entries:
+            speaker = entry.get("speaker", "user")
+            content = entry.get("content", "")
+            ts = entry.get("timestamp")
+            if not content:
+                continue
+            meta: dict[str, Any] = {"source": "auto_hook"}
+            if ts:
+                meta["stored_at"] = ts
+            _memory_manager.add_message(speaker, content, metadata=meta)
+
+        if entries:
+            _save_state()
+            logger.info(f"Ingested {len(entries)} pending messages from hook queue")
+
+    except Exception as e:
+        logger.warning(f"Failed to ingest pending queue: {e}")
+
+
 def _ensure_session() -> None:
     """Ensure there's an active session, creating one if needed."""
     _initialize_memory()
@@ -260,6 +312,8 @@ def _ensure_session() -> None:
     if _memory_manager.current_session_id is None:
         _memory_manager.start_session()
         logger.info("Started new memory session")
+    # Ingest any messages queued by the auto-hook
+    _ingest_pending()
 
 
 @mcp.tool()
@@ -368,7 +422,7 @@ async def retrieve_memories(
         t0 = time.monotonic()
         error = False
         try:
-            _initialize_memory()
+            _ensure_session()
             assert _retriever is not None
 
             # Retrieve relevant memories
@@ -428,7 +482,7 @@ async def search_memories_by_entity(
         t0 = time.monotonic()
         error = False
         try:
-            _initialize_memory()
+            _ensure_session()
             assert _retriever is not None
 
             # Use the retriever with an entity-focused query
@@ -484,7 +538,7 @@ async def search_memories_by_time(
         t0 = time.monotonic()
         error = False
         try:
-            _initialize_memory()
+            _ensure_session()
             assert _retriever is not None
 
             # Use temporal query
@@ -523,7 +577,7 @@ async def get_memory_summary() -> str:
         t0 = time.monotonic()
         error = False
         try:
-            _initialize_memory()
+            _ensure_session()
             assert _memory_manager is not None
 
             stats = _memory_manager.get_stats()
